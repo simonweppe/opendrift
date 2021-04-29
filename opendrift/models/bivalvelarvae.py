@@ -122,8 +122,20 @@ class BivalveLarvae(OceanDrift):
         self._add_config({ 'drift:min_settlement_age_seconds': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
                            'description': 'minimum age in seconds at which larvae can start to settle on seabed or stick to shoreline)',
                            'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'drift:settlement_in_habitat': {'type': 'bool', 'default': False,
+                           'description': 'settlement restricted to suitable habitat only',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        
 
- 
+    def habitat(self, shapefile_location):
+        """Suitable habitat in a shapefile"""
+        global shp # terrible idea, but works ok for the moment: need to use shp and bins in another functionm
+        global bins
+        shp = shapefile.Reader(shapefile_location)
+        bins = shp.shapes()
+        return shp, bins
+    
+    
     def update(self):
         """Update positions and properties of buoyant particles."""
 
@@ -133,6 +145,10 @@ class BivalveLarvae(OceanDrift):
 
         # Horizontal advection
         self.advect_ocean_current()
+        
+        # Check for presence in habitat
+        if self.get_config('drift:settlement_in_habitat') is True:
+            self.interact_with_habitat()
 
         # Turbulent Mixing or settling-only 
         if self.get_config('drift:vertical_mixing') is True:
@@ -169,7 +185,11 @@ class BivalveLarvae(OceanDrift):
         self.elements.z[np.where(below_and_younger)] = -sea_floor_depth[np.where(below_and_younger)]
 
         # deactivate elements that were both below and older
-        self.deactivate_elements(below_and_older ,reason='settled_on_bottom')
+        if self.get_config('drift:settlement_in_habitat') is False:
+            self.deactivate_elements(below_and_older ,reason='settled_on_bottom')
+        # if elements can only settle in habitat then they are moved back to seafloor
+        else:
+            self.elements.z[np.where(below_and_older)] = -sea_floor_depth[np.where(below_and_older)]
 
         logger.debug('%s elements hit seafloor, %s were older than %s sec. and deactivated, %s were lifted back to seafloor' \
             % (len(below),len(below_and_older),self.get_config('drift:min_settlement_age_seconds'),len(below_and_younger)))    
@@ -237,6 +257,7 @@ class BivalveLarvae(OceanDrift):
         if len(surface[0]) > 0:
             self.elements.z[surface] = sea_surface_height[surface] -0.01 # set particle z at 0.01m below sea_surface_height
 
+            
     def interact_with_coastline(self,final = False): 
         """Coastline interaction according to configuration setting
            (overloads the interact_with_coastline() from basemodel.py)
@@ -283,8 +304,18 @@ class BivalveLarvae(OceanDrift):
         #                        (previous_position_if == 1))[0]
         if len(on_land) == 0:
             logger.debug('No elements hit coastline.')
-        else:                
-            if self.get_config('drift:min_settlement_age_seconds') == 0.0 :
+        else:
+            if self.get_config('drift:settlement_in_habitat') is True:
+                    # Particle can only settle in habitat, set back to previous location
+                    logger.debug('%s elements hit coastline, '
+                              'moving back to water' % len(on_land))
+                    on_land_ID = self.elements.ID[on_land]
+                    self.elements.lon[on_land] = \
+                        np.copy(self.previous_lon[on_land_ID - 1])
+                    self.elements.lat[on_land] = \
+                        np.copy(self.previous_lat[on_land_ID - 1])
+                    self.environment.land_binary_mask[on_land] = 0  
+            elif self.get_config('drift:min_settlement_age_seconds') == 0.0 :
                 # No minimum age input, set back to previous position (same as in interact_with_coastline() from basemodel.py)
                 logger.debug('%s elements hit coastline, '
                           'moving back to water' % len(on_land))
@@ -326,7 +357,32 @@ class BivalveLarvae(OceanDrift):
                                          (self.elements.age_seconds >= self.get_config('drift:min_settlement_age_seconds')),
                                          reason='settled_on_coast')
 
-
+                
+    def interact_with_habitat(self):
+           """Habitat interaction according to configuration setting
+               The method checks if a particle is within the limit of an habitat before to allow settlement
+           """        
+           # Get age of particle
+           old_enough = np.where(self.elements.age_seconds >= self.get_config('drift:min_settlement_age_seconds'))[0]
+           if len(old_enough) > 0 :
+               pts_lon = self.elements.lon[old_enough]
+               pts_lat = self.elements.lat[old_enough]
+               # Check if position of particle is within boundaries of polygons
+               for i in range(len(pts_lon)):
+                   pt = Point(pts_lon[i], pts_lat[i])
+                   for index, item in enumerate(shp):
+                       pts = bins[index].points # Access one polygon
+                       poly = Polygon(pts)
+                       in_habitat = pt.within(poly)
+                       if in_habitat == True:
+                           #import pdb; pdb.set_trace()
+                           self.environment.land_binary_mask[old_enough[i]] = 1
+                           
+           # Deactivate elements that are within a polygon and old enough to settle
+           # ** function expects an array of size consistent with self.elements.lon                
+           self.deactivate_elements((self.environment.land_binary_mask == 1), reason='settled_in_habitat')
+        
+        
     def increase_age_and_retire(self):  
             # if max_age_seconds is exceeded, particle is flagged as 'died'
 
