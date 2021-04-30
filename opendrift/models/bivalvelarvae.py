@@ -376,11 +376,11 @@ class BivalveLarvae(OceanDrift):
                        in_habitat = pt.within(poly)
                        if in_habitat == True:
                            #import pdb; pdb.set_trace()
-                           self.environment.land_binary_mask[old_enough[i]] = 1
+                           self.environment.land_binary_mask[old_enough[i]] = 6
                            
            # Deactivate elements that are within a polygon and old enough to settle
            # ** function expects an array of size consistent with self.elements.lon                
-           self.deactivate_elements((self.environment.land_binary_mask == 1), reason='settled_in_habitat')
+           self.deactivate_elements((self.environment.land_binary_mask == 6), reason='settled_in_habitat')
         
         
     def increase_age_and_retire(self):  
