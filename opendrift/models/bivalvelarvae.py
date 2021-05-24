@@ -286,10 +286,10 @@ class BivalveLarvae(OceanDrift):
         # if i == 'previous':  # Go back to previous position (in water)
         # previous_position_if = self.previous_position_if()
         if self.newly_seeded_IDs is not None:
-            self.deactivate_elements(
-                (self.environment.land_binary_mask == 1) &
-                (self.elements.ID >= self.newly_seeded_IDs[0]),
-                reason='seeded_on_land')
+                self.deactivate_elements(
+                    (self.environment.land_binary_mask == 1) &
+                    (self.elements.age_seconds == self.time_step.total_seconds()),
+                    reason='seeded_on_land')
         on_land = np.where(self.environment.land_binary_mask == 1)[0]
 
             # if previous_position_if is not None:
