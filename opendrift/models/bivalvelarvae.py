@@ -19,6 +19,8 @@
 import numpy as np
 from opendrift.models.oceandrift import OceanDrift, Lagrangian3DArray
 import logging; logger = logging.getLogger(__name__)
+import fiona # added for settlement in polygon only
+from shapely.geometry import Polygon, Point, MultiPolygon # added for settlement in polygon only
 
 
 # Defining the  element properties from Pelagicegg model
@@ -129,11 +131,16 @@ class BivalveLarvae(OceanDrift):
 
     def habitat(self, shapefile_location):
         """Suitable habitat in a shapefile"""
-        global shp # terrible idea, but works ok for the moment: need to use shp and bins in another functionm
-        global bins
-        shp = shapefile.Reader(shapefile_location)
-        bins = shp.shapes()
-        return shp, bins
+        global multiShp
+        polyShp = fiona.open(shapefile_location) # import shapefile
+        polyList = []
+        polyProperties = []
+        for poly in polyShp: # create individual polygons from shapefile
+             polyGeom = Polygon(poly['geometry']['coordinates'][0]) 
+             polyList.append(polyGeom)
+             polyProperties.append(poly['properties'])
+        multiShp = MultiPolygon(polyList).buffer(0) # Aggregate polygons in a MultiPolygon object and buffer to fuse polygons and remove errors
+        return multiShp
     
     
     def update(self):
@@ -368,19 +375,15 @@ class BivalveLarvae(OceanDrift):
                pts_lon = self.elements.lon[old_enough]
                pts_lat = self.elements.lat[old_enough]
                # Check if position of particle is within boundaries of polygons
-               for i in range(len(pts_lon)):
-                   pt = Point(pts_lon[i], pts_lat[i])
-                   for index, item in enumerate(shp):
-                       pts = bins[index].points # Access one polygon
-                       poly = Polygon(pts)
-                       in_habitat = pt.within(poly)
-                       if in_habitat == True:
-                           #import pdb; pdb.set_trace()
-                           self.environment.land_binary_mask[old_enough[i]] = 6
-                           
+               for i in range(len(pts_lon)): # => faster version invoving MultiPolygon
+                    pt = Point(pts_lon[i], pts_lat[i])
+                    in_habitat = pt.within(multiShp)
+                    if in_habitat == True:
+                        self.environment.land_binary_mask[old_enough[i]] = 6
+                        
            # Deactivate elements that are within a polygon and old enough to settle
            # ** function expects an array of size consistent with self.elements.lon                
-           self.deactivate_elements((self.environment.land_binary_mask == 6), reason='settled_in_habitat')
+           self.deactivate_elements((self.environment.land_binary_mask == 6), reason='home_sweet_home')
         
         
     def increase_age_and_retire(self):  
