@@ -1,31 +1,43 @@
-# See https://opendrift.github.io for usage
+FROM python:3.8-buster
 
-FROM continuumio/miniconda3
+RUN apt update && \
+    apt install -y libeccodes-dev libeccodes0 libproj-dev proj-bin libgeos-dev && \
+    apt -y upgrade && \
+    apt clean
 
-ENV DEBIAN_FRONTEND noninteractive
-ENV PATH /code/opendrift/opendrift/scripts:$PATH
+RUN pip install -U pip Cython numpy
+        # upgrade pip to reduce warnings
+RUN pip install \
+        # OilLibrary requires
+        zope.sqlalchemy\<1.1\
+        sqlalchemy\<1.4\
+        # opendrift-landmask-data requires
+        future\
+        # opendrift requires
+        cfgrib \
+        cartopy \
+        coloredlogs \
+        Cython\
+        dask\<2021.03 \
+        eccodes \
+        ffmpeg \
+        pysolar \
+        geojson \
+        motuclient \
+        nc_time_axis \
+        pytest-benchmark\
+        toolz\
+        xarray \
+        xhistogram==0.1.2 \
+        shapely \
+        --no-binary shapely\
+        --no-binary cartopy\
+        &&\
+    # We do this because we don't trust setup.py install_requires
+    pip install -r https://raw.githubusercontent.com/OpenDrift/OilLibrary/master/requirements.txt &&\
+    pip install -r https://raw.githubusercontent.com/OpenDrift/opendrift-landmask-data/master/requirements.txt
 
-RUN mkdir /code
-WORKDIR /code
+ADD . /source/opendrift
 
-RUN conda config --add channels noaa-orr-erd
-RUN conda config --add channels conda-forge
-RUN conda config --add channels opendrift
-
-# Install opendrift environment into base conda environment
-COPY environment.yml .
-RUN /opt/conda/bin/conda env update -n base -f environment.yml
-
-# Cache cartopy maps
-RUN /bin/bash -c "echo -e \"import cartopy\nfor s in ('c', 'l', 'i', 'h', 'f'): cartopy.io.shapereader.gshhs(s)\" | python"
-
-# Cache landmask generation
-RUN /bin/bash -c "echo -e \"import opendrift_landmask_data as old\nold.Landmask()\" | python"
-
-# Install opendrift
-ADD . /code
-RUN pip install -e .
-
-# Test installation
-RUN /bin/bash -c "echo -e \"import opendrift\" | python"
-
+RUN pip install -r /source/opendrift/requirements.txt &&\
+    pip install /source/opendrift/
