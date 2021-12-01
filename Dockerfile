@@ -29,7 +29,7 @@ RUN pip install \
         toolz\
         xarray \
         xhistogram==0.1.2 \
-        shapely \
+        shapely\
         --no-binary shapely\
         --no-binary cartopy\
         &&\
