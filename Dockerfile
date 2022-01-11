@@ -30,7 +30,7 @@ RUN pip install \
         xarray\<0.20.0\
         xhistogram==0.1.2 \
         shapely\
-        --no-binary shapely\
+        --no-binary shapely \
         --no-binary cartopy\
         &&\
     # We do this because we don't trust setup.py install_requires
