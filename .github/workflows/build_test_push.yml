@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build Docker Image
-        run: docker build -t metocean/opendrift:${GITHUB_REF#refs/*/} Dockerfile-pip
+        run: docker build -t metocean/opendrift:${GITHUB_REF#refs/*/} -f Dockerfile-pip .
       # - name: Run tests OpenDrift
       #   run: docker run --rm metocean/opendrift:${GITHUB_REF#refs/*/} pytest /source/opendrift/tests
       - name: Docker login
