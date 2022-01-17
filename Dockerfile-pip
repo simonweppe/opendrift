@@ -35,7 +35,6 @@ RUN pip install \
         --no-binary cartopy\
         &&\
     # We do this because we don't trust setup.py install_requires
-    pip install -r https://raw.githubusercontent.com/OpenDrift/OilLibrary/master/requirements.txt &&\
     pip install -r https://raw.githubusercontent.com/OpenDrift/opendrift-landmask-data/master/requirements.txt
 
 ADD . /source/opendrift
