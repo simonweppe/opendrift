@@ -1,0 +1,21 @@
+name: Create Release Tag Image
+on: 
+  push:
+    tags:
+      - '*'
+jobs:
+  tag_and_push_master_branch:
+    runs-on: ubuntu-latest
+    name: build-test-push
+    steps:
+      - uses: actions/checkout@v2
+      - name: Docker login
+        run: docker login -u mslops -p ${{ secrets.DOCKERHUB_MSLOPS_PASS  }}
+      - name: Docker pull latest image
+        run: docker pull metocean/opendrift:master
+      - name: Re-tag image
+        run: docker tag metocean/opendrift:master metocean/opendrift:${GITHUB_REF#refs/*/}
+      - name: Push tagged image
+        run: docker push metocean/opendrift:${GITHUB_REF#refs/*/}
+      - name: Docker logout
+        run: docker logout

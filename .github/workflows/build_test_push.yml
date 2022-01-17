@@ -1,0 +1,19 @@
+name: build_test_push
+on: 
+  push:
+    branches:
+      - "*"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Unittests
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Docker Image
+        run: docker build -t metocean/opendrift:${GITHUB_REF#refs/*/} -f Dockerfile-pip .
+      # - name: Run tests OpenDrift
+      #   run: docker run --rm metocean/opendrift:${GITHUB_REF#refs/*/} pytest /source/opendrift/tests
+      - name: Docker login
+        run: docker login -u mslops -p ${{ secrets.DOCKERHUB_MSLOPS_PASS  }}
+      - name: Docker push
+        run: docker push metocean/opendrift:${GITHUB_REF#refs/*/}

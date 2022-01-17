@@ -68,8 +68,8 @@ from io import open
 import numpy as np
 from datetime import datetime
 import logging
-import matplotlib; matplotlib.use('Tkagg') #hack to prevent display issues 
 import pyproj
+
 import matplotlib.pyplot as plt
 import logging
 
