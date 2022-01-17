@@ -71,6 +71,7 @@ class LobsterLarvae(BivalveLarvae):
         'turbulent_kinetic_energy': {'fallback': 0},
         'turbulent_generic_length_scale': {'fallback': 0},
         'upward_sea_water_velocity': {'fallback': 0},
+        'ocean_mixed_layer_thickness': {'fallback': 50},
       }
 
     # Vertical profiles of the following parameters will be available in
@@ -184,8 +185,8 @@ class LobsterLarvae(BivalveLarvae):
         logger.debug('Assuming UTC time for solar calculations')
         # longitude convention in pysolar, consistent with Opendrift : negative reckoning west from prime meridian in Greenwich, England
         # the particle longitude should be converted to the convention [-180,180] if that is not the case
-        sun_altitude = solar.get_altitude(self.elements.lon, self.elements.lat, date) # get sun altitude in degrees
-        sun_azimut = solar.get_azimuth(self.elements.lon, self.elements.lat, date) # get sun azimuth in degrees
+        sun_altitude = solar.get_altitude(self.elements.lat, self.elements.lon, date) # get sun altitude in degrees
+        sun_azimut = solar.get_azimuth(self.elements.lat, self.elements.lon, date) # get sun azimuth in degrees
         sun_radiation = np.zeros(len(sun_azimut))
         # not ideal get_radiation_direct doesnt accept arrays...
         for elem_i,alt in enumerate(sun_altitude):
@@ -413,7 +414,6 @@ class LobsterLarvae(BivalveLarvae):
             # Advect particles due to surface wind drag,
             # according to element property wind_drift_factor
             self.advect_wind()
-
             # Stokes drift
             self.stokes_drift()
 

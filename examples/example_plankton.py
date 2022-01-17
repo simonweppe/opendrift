@@ -79,19 +79,6 @@ if True:
     # to switch off the constant migration rate towards day or night time position, and use update_terminal_velocity_pelagicegg() :
     # o.set_config('biology:vertical_migration_speed_constant',None) 
 ####################################################################################################################
-if False:
-    # in dev...
-    # plankton-specific config for module in :
-    # https://github.com/trondkr/KINO-ROMS/blob/master/Romagnoni-2019-OpenDrift/kino/pelagicplankton.py
-    o.set_config('biology:constantIngestion', 0.5) #'float(min=0.0, max=1.0, default=0.5)', comment='Ingestion constant')
-    o.set_config('biology:activemetabOn', 1.0) #'float(min=0.0, max=1.0, default=1.0)', comment='Active metabolism')
-    o.set_config('biology:attenuationCoefficient', 0.18) #'float(min=0.0, max=1.0, default=0.18)', comment='Attenuation coefficient')
-    o.set_config('biology:fractionOfTimestepSwimming',0.15 ) #'float(min=0.0, max=1.0, default=0.15)', comment='Fraction of timestep swimming')
-    o.set_config('biology:lowerStomachLim', 0.3) #'float(min=0.0, max=1.0, default=0.3)', comment='Limit of stomach fullness for larvae to go down if light increases')
-    o.set_config('biology:haddock', False) #'boolean(default=False)', comment='Species=haddock')
-    o.set_config('biology:cod', True ) #'boolean(default=True)', comment='Species=cod')
-####################################################################################################################
-
 
 # Running model
 o.run(end_time=nordic_native.start_time + timedelta(hours=48.0), time_step=3600)
@@ -101,6 +88,7 @@ o.run(end_time=nordic_native.start_time + timedelta(hours=48.0), time_step=3600)
 print(o)
 
 o.plot(fast=True)
+o.plot_property('z')
 
 o.animation(fast=True,background=['x_sea_water_velocity', 'y_sea_water_velocity'], color='z')
 

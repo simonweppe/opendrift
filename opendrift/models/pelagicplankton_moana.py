@@ -18,8 +18,9 @@
 # 
 # Module to simulate behaviour of Plankton, including phytoplankton (plants) and zooplankton (animals)
 #
-# Developed by Simon Weppe based on several sources to fit requirements for use in MetOceanTrack model
-# developped by MetOcean/MetService NZ as part of the Moana project (https://www.moanaproject.org/)
+# Developed by Simon WeppeMetOcean/MetService NZ based on several sources to fit requirements for 
+# use in MetOceanTrack model developped by MetOcean/MetService NZ as part of the Moana project 
+# (https://www.moanaproject.org/)
 # 
 ##################################################################################################
 # 
@@ -30,14 +31,14 @@
 #   >> https://github.com/trondkr/KINO-ROMS/tree/master/Romagnoni-2019-OpenDrift/kino
 #   >> https://github.com/trondkr/KINO-ROMS/blob/master/Romagnoni-2019-OpenDrift/kino/pelagicplankton.py
 #
-# "This code simulates cod egg and larvae and was developed by Trond Kristiansen (me (at) trondkristiansen.com)
-# and Kristina Kvile (kristokv (at) gmail.com)""
+#   "This code simulates cod egg and larvae and was developed by Trond Kristiansen (me (at) trondkristiansen.com)
+#   and Kristina Kvile (kristokv (at) gmail.com)""
 # 
 # b) Opendrift's pelagicegg module 
-# >> https://github.com/OpenDrift/opendrift/blob/master/opendrift/models/pelagicegg.py
+#   >> https://github.com/OpenDrift/opendrift/blob/master/opendrift/models/pelagicegg.py
 # 
 # c ) Some components of code are taken from 
-# >> https://github.com/metocean/ercore/tree/ercore_opensrc/ercore/lib
+#   >> https://github.com/metocean/ercore/tree/ercore_opensrc/ercore/lib
 # 
 ##################################################################################################
 
@@ -49,10 +50,6 @@ from opendrift.models.oceandrift import OceanDrift, Lagrangian3DArray
 from opendrift.elements import LagrangianArray
 import logging; logger = logging.getLogger(__name__)
 
-# Necessary to import the Fortran module that calculates light
-if False: # disabling for now
-    from kino import calclight
-    from kino import bioenergetics
 
 # Defining the PelagicPlankton element properties
 class PelagicPlankton(Lagrangian3DArray):
@@ -67,42 +64,12 @@ class PelagicPlankton(Lagrangian3DArray):
         ('neutral_buoyancy_salinity', {'dtype': np.float32,
                                        'units': '[]',
                                        'default': 31.25}),  # for NEA Cod
-        ('density', {'dtype': np.float32,
-                     'units': 'kg/m^3',
-                     'default': 1028.}),
         ('age_seconds', {'dtype': np.float32,
                          'units': 's',
-                         'default': 0.}),
-        ('hatched', {'dtype': np.int64,
-                     'units': '',
-                     'default': 0}),
-        ('stage_fraction', {'dtype': np.float32,   #KK: Added to track percentage of development time completed
-                         'units': '',
-                         'default': 0.}),               
-        ('length', {'dtype': np.float32,
-                         'units': 'mm',
-                         'default': 4.0}),
-        ('weight', {'dtype': np.float32,
-                         'units': 'mg',
-                         'default': 0.08}),
-        ('Eb', {'dtype': np.float32,
-                     'units': 'ugEm2',
-                     'default': 0.}),
+                         'default': 0.}),           
          ('light', {'dtype': np.float32,
                      'units': 'ugEm2',
                      'default': 0.}),
-         ('growth_rate', {'dtype': np.float32,   
-                          'units': '%',
-                          'default': 0.}),
-         ('ingestion_rate', {'dtype': np.float32,   
-                          'units': '%',
-                          'default': 0.}),
-         ('stomach_fullness', {'dtype': np.float32, 
-                          'units': '%',
-                          'default': 0.}),
-         ('stomach', {'dtype': np.float32, 
-                          'units': '',
-                          'default': 0.}),
          ('survival', {'dtype': np.float32, # generic load to track mortality
                           'units': '',
                           'default': 1.})])
@@ -139,6 +106,7 @@ class PelagicPlanktonDrift(OceanDrift):
         'turbulent_kinetic_energy': {'fallback': 0},
         'turbulent_generic_length_scale': {'fallback': 0},
         'upward_sea_water_velocity': {'fallback': 0},
+        'ocean_mixed_layer_thickness': {'fallback': 50},
       }
 
     # The depth range (in m) which profiles shall cover
@@ -220,33 +188,6 @@ class PelagicPlanktonDrift(OceanDrift):
         self._add_config({ 'biology:halotaxis': {'type': 'float', 'default': None,'min': 0.0, 'max': 1.0, 'units': '(m/s per PSU/m)',
                            'description': 'movement of an organism towards or away from a source of salt, in (m/s per PSU/m)',
                            'level': self.CONFIG_LEVEL_BASIC}})
-        #################################################################################################
-        # More IBM-specific configuration options
-        # specifications on pelagicplankton module by Trond Kristiansen
-        # https://github.com/trondkr/KINO-ROMS/blob/master/Romagnoni-2019-OpenDrift/kino/pelagicplankton.py
-
-        self._add_config({ 'biology:constantIngestion': {'type': 'float', 'default': 0.5,'min': 0.0, 'max': 1.0, 'units': '-',
-                           'description': 'Ingestion constant',
-                           'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'biology:activemetabOn': {'type': 'float', 'default': 1.0, 'min': 0.0, 'max': 1.0, 'units': '-',
-                           'description': 'Active metabolism',
-                           'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'biology:attenuationCoefficient': {'type': 'float', 'default': 0.18,'min': 0.0, 'max': 1.0, 'units': '-',
-                           'description': 'Attenuation coefficient',
-                           'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'biology:fractionOfTimestepSwimming': {'type': 'float', 'default': 0.15,'min': 0.0, 'max': 1.0, 'units': '-',
-                           'description': 'Fraction of timestep swimming',
-                           'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'biology:lowerStomachLim': {'type': 'float', 'default': 0.3,'min': 0.0, 'max': 1.0, 'units': '-',
-                           'description': 'Limit of stomach fullness for larvae to go down if light increases',
-                           'level': self.CONFIG_LEVEL_BASIC}})        
-        self._add_config({ 'biology:haddock': {'type': 'bool', 'default': False,
-                           'description': 'Species=haddock',
-                           'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'biology:cod': {'type': 'bool', 'default': True,
-                           'description': 'Species=cod',
-                           'level': self.CONFIG_LEVEL_BASIC}})
-        #################################################################################################
 
     def update_terminal_velocity(self,Tprofiles=None, Sprofiles=None,
                                  z_index=None): 
@@ -272,8 +213,7 @@ class PelagicPlanktonDrift(OceanDrift):
             Fish. Oceanogr. (16) pp. 216-228
 
             same as Opendrift's PelagicEggDrift model. This function is called in update()
-        """
-
+        """ 
         g = 9.81  # ms-2
 
         # Pelagic Egg properties that determine buoyancy
@@ -347,15 +287,12 @@ class PelagicPlanktonDrift(OceanDrift):
     ##################################################################################################
     # >> reproduce behaviours included in Plankton class
     #    in https://github.com/metocean/ercore/blob/ercore_nc/ercore/materials/biota.py
-    # 
-    # 
     ##################################################################################################
     
     def calculateMaxSunLight(self):
         # Calculates the max sun radiation at given positions and dates (and returns zero for night time)
         # 
         # The method is using the third party library PySolar : https://pysolar.readthedocs.io/en/latest/#
-        # 
         # 
         # some other available options:
         # https://pypi.org/project/solarpy/
@@ -370,8 +307,8 @@ class PelagicPlanktonDrift(OceanDrift):
         logger.debug('Assuming UTC time for solar calculations')
         # longitude convention in pysolar, consistent with Opendrift : negative reckoning west from prime meridian in Greenwich, England
         # the particle longitude should be converted to the convention [-180,180] if that is not the case
-        sun_altitude = solar.get_altitude(self.elements.lon, self.elements.lat, date) # get sun altitude in degrees
-        sun_azimut = solar.get_azimuth(self.elements.lon, self.elements.lat, date) # get sun azimuth in degrees
+        sun_altitude = solar.get_altitude(self.elements.lat, self.elements.lon, date) # get sun altitude in degrees ** 
+        sun_azimut = solar.get_azimuth(self.elements.lat, self.elements.lon, date) # get sun azimuth in degrees
         sun_radiation = np.zeros(len(sun_azimut))
         # not ideal get_radiation_direct doesnt accept arrays...
         for elem_i,alt in enumerate(sun_altitude):
@@ -380,27 +317,6 @@ class PelagicPlanktonDrift(OceanDrift):
         logger.debug('Solar radiation from %s to %s [W/m2]' % (sun_radiation.min(), sun_radiation.max() ) )
         # print(np.min(sun_radiation))
         # print(date)
-
-        # Opendrift has a built-in function to work out solar elevation at current particle positions and date (from physics_methods.py)
-        # but it returns results that are quite different from Pysolar.
-        # print(sun_altitude)
-        # print(self.solar_elevation()) 
-
-        # Quick test on night time vs daytime
-        # lon = -3 #(France)
-        # lat = 47
-        # date=  datetime(2020, 10, 6, 12, 0)
-        # date = date.replace(tzinfo=timezone.utc)
-        # date_vec = date + np.arange(48) * timedelta(hours=1)
-        # sun_radiation = np.zeros(len(date_vec)) 
-        # sun_radiation = np.zeros(len(date_vec))       
-        # for ii,date_i in enumerate(date_vec):
-        #     sun_altitude[ii] = solar.get_altitude(lon,lat, date_i)
-        #     sun_radiation[ii] = solar.radiation.get_radiation_direct(date_i, sun_altitude[ii])
-        # import matplotlib.pyplot as plt
-        # plt.ion()
-        # plt.plot(date_vec,sun_radiation)
-        # import pdb;pdb.set_trace()
     
     def plankton_development(self):
 
@@ -502,134 +418,8 @@ class PelagicPlanktonDrift(OceanDrift):
         # simply change some parameters of existing particles at a certan time...
         # 
 
-    ##################################################################################################
-    # Not used for now
-    ##################################################################################################
-    def calculateMaximumDailyLight(self):
-        """LIGHT == Get the maximum light at the current latitude, and the current surface light at the current time.
-        These values are used in calculateGrowth and  predation.FishPredAndStarvation, but need only be calcuated once per time step. """
-
-        tt = self.time.timetuple()
-      
-        num=np.shape(self.elements.lat)[0]
-        dayOfYear = float(tt.tm_yday); month=float(tt.tm_mon); hourOfDay = float(tt.tm_hour); daysInYear=365.0
-        radfl0=np.zeros((num)); maxLight=np.zeros((num)); 
-        cawdir=np.zeros((num)); clouds=0.0; 
-        sunHeight=np.zeros((num)); surfaceLight=np.zeros((num))
-
-        """Calculate the maximum and average light values for a given geographic position
-        for a given time of year. Notice we use radfl0 instead of maximum values maxLight
-        in light caclualtions. Seemed better to use average values than extreme values.
-        NOTE: Convert from W/m2 to umol/m2/s-1"""
-        radfl0,maxLight,cawdir = calclight.calclight.qsw(radfl0,maxLight,cawdir,clouds,self.elements.lat*np.pi/180.0,dayOfYear,daysInYear,num)
-        maxLight = radfl0/0.217
-        """Calculate the daily variation of irradiance based on hour of day - store in self.elements.light"""
-        for ind in range(len(self.elements.lat)):
-        
-          sunHeight, surfaceLight = calclight.calclight.surlig(hourOfDay,float(maxLight[ind]),dayOfYear,float(self.elements.lat[ind]),sunHeight,surfaceLight)
-          self.elements.light[ind]=surfaceLight
-
-    def updateSurvival(self):
-        # Update the size dependent mortality
-        k = 0.06
-        x = 0.4
-        mortality_scale = 1 # To increase or decrease the mortality rate
-
-        for ind in range(len(self.elements.lat)):
-            if (self.elements.hatched[ind]>=1):
-                #Larval mortality (per day):
-                 mortality = k*(self.elements.weight[ind]**-x)*(self.time_step.total_seconds()/(24*3600.))
-                 mortality = mortality_scale*mortality
-            else:
-                #Egg mortality:
-                mortality = 0.2*(self.time_step.total_seconds()/(24*3600.))
-                mortality = mortality_scale*mortality
-                self.elements.survival[ind] = self.elements.survival[ind]*(np.exp(-mortality))
-
-    def updateEggDevelopment(self):
-        # Update percentage of egg stage completed
-        amb_duration = np.exp(3.65 - 0.145*self.environment.sea_water_temperature) #Total egg development time (days) according to ambient temperature (Ellertsen et al. 1988)
-        days_in_timestep = self.time_step.total_seconds()/(60*60*24)  #The fraction of a day completed in one time step
-        amb_fraction = days_in_timestep/(amb_duration) #Fraction of development time completed during present time step 
-        self.elements.stage_fraction += amb_fraction #Add fraction completed during present timestep to cumulative fraction completed
-        self.elements.hatched[self.elements.stage_fraction>=1] = 1 #Eggs with total development time completed are hatched (1)
-
-    def updateVerticalPosition(self,length,oldLight,currentLight,currentDepth,stomach_fullness,dt):
-        # Update the vertical position of the current larva
-        swimSpeed=0.261*(length**(1.552*length**(0.920-1.0)))-(5.289/length)
-        fractionOfTimestepSwimming = self.get_config('biology:fractionOfTimestepSwimming')
-        maxHourlyMove = swimSpeed*fractionOfTimestepSwimming*dt
-        maxHourlyMove =  round(maxHourlyMove/1000.,1) # depth values are negative
-        lowerStomachLim = self.get_config('biology:lowerStomachLim')
-
-        if (oldLight <= currentLight and stomach_fullness >= lowerStomachLim): #If light increases and stomach is sufficiently full, go down
-          depth = min(0.0,currentDepth - maxHourlyMove)
-        else: #If light decreases or stomach is not sufficiently full, go up
-          depth = min(0,currentDepth + maxHourlyMove)
-        #print "current depth %s new depth %s light %s lastLight %s"%(currentDepth,depth,currentLight,oldLight)
-        #print "maximum mm to move %s new depth %s old depth %s"%(maxHourlyMove,depth,currentDepth)
-        return depth
-
-    def updatePlanktonDevelopment(self):
-   
-        constantIngestion = self.get_config('biology:constantIngestion')
-        activemetabOn = self.get_config('biology:activemetabOn')
-        attCoeff = self.get_config('biology:attenuationCoefficient')
-        haddock = self.get_config('biology:haddock')
-        fractionOfTimestepSwimming = self.get_config('biology:fractionOfTimestepSwimming')
-
-        self.updateEggDevelopment()
-        
-        # Save the light from previous timestep to use for vertical behavior
-        lastLight=np.zeros(np.shape(self.elements.light))
-        lastLight[:]=self.elements.light[:]
-
-        self.calculateMaximumDailyLight()
-
-        self.elements.Eb=self.elements.light*np.exp(attCoeff*(self.elements.z))
-     
-        dt=self.time_step.total_seconds()
-
-        for ind in range(len(self.elements.lat)):
-          if (self.elements.hatched[ind]>=1):
-          # Calculate biological properties of the individual larva                                 
-            larvamm,larvawgt,stomach,ingrate,growthrate,sfullness=bioenergetics.bioenergetics.growth(self.elements.length[ind],
-              self.elements.weight[ind],
-              self.elements.stomach[ind],
-              self.elements.ingestion_rate[ind],
-              self.elements.growth_rate[ind],
-              self.elements.stomach_fullness[ind],
-              haddock,
-              activemetabOn,
-              constantIngestion,
-              fractionOfTimestepSwimming,
-              self.elements.Eb[ind],
-              dt,
-              self.environment.sea_water_temperature[ind])
-            # Update the element
-
-            self.elements.length[ind]=larvamm
-            self.elements.weight[ind]=larvawgt
-            self.elements.stomach[ind]=stomach
-            self.elements.ingestion_rate[ind]=ingrate
-            self.elements.growth_rate[ind]=growthrate
-            self.elements.stomach_fullness[ind]=sfullness
-
-            self.elements.z[ind] = self.updateVertialPosition(self.elements.length[ind],
-              lastLight[ind],
-              self.elements.light[ind],
-              self.elements.z[ind],
-              self.elements.stomach_fullness[ind],
-              dt)
-    ##################################################################################################
-    # above not used for now
-    ##################################################################################################
-
     def update(self):
-        """Update positions and properties of buoyant particles."""
-
-        # Update element age
-        # self.elements.age_seconds += self.time_step.total_seconds() # not needed already taken care of in increase_age_and_retire() in basemodel.py
+        """Update positions and properties of planktonn particles."""
 
         # move particles with ambient current
         self.advect_ocean_current()
@@ -639,7 +429,6 @@ class PelagicPlanktonDrift(OceanDrift):
             # Advect particles due to surface wind drag,
             # according to element property wind_drift_factor
             self.advect_wind()
-
             # Stokes drift
             self.stokes_drift()
 
@@ -657,9 +446,3 @@ class PelagicPlanktonDrift(OceanDrift):
         # Plankton specific
         if True:
           self.plankton_development()
-        
-        # place holder for more sophisticated algorithm if needed
-        if False:
-          # Plankton development
-          self.updatePlanktonDevelopment()
-          self.updateSurvival()

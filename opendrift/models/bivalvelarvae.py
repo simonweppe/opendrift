@@ -64,6 +64,7 @@ class BivalveLarvae(OceanDrift):
         'turbulent_kinetic_energy': {'fallback': 0},
         'turbulent_generic_length_scale': {'fallback': 0},
         'upward_sea_water_velocity': {'fallback': 0},
+        'ocean_mixed_layer_thickness': {'fallback': 50},
       }
 
     # Vertical profiles of the following parameters will be available in
