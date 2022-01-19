@@ -132,6 +132,7 @@ class PelagicPlanktonDrift(OceanDrift):
         'land_binary_mask': {'fallback': None},
         'sea_floor_depth_below_sea_level': {'fallback': 100},
         'ocean_vertical_diffusivity': {'fallback': 0.02, 'profiles': True},
+        'ocean_mixed_layer_thickness': {'fallback': 50},
         'sea_water_temperature': {'fallback': 10, 'profiles': True},
         'sea_water_salinity': {'fallback': 34, 'profiles': True},
         'surface_downward_x_stress': {'fallback': 0},

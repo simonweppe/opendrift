@@ -103,6 +103,7 @@ Contents
 
    history_link
    install
+   performance
    tutorial
    theory/index
    choosing_a_model
@@ -113,6 +114,7 @@ Contents
    docker
    gui
    references
+   services
    autoapi/index
 
 

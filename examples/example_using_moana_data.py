@@ -20,7 +20,7 @@ o.max_speed = 3.0#
 
 thredds_path = 'http://thredds.moanaproject.org:8080/thredds/dodsC/moana/ocean/NZB/v1.9/raw_3D/nz5km_his_201712.nc'
 reader_moana_v19 = reader_ROMS_native_MOANA.Reader(thredds_path) # load data for that year
-reader_moana_v19.multiprocessing_fail = True # bypass the use of multi core for coordinates conversion and seems to make the model run much faster.
+reader_moana_v19.multiprocessing_fail = False # bypass the use of multi core for coordinates conversion and seems to make the model run much faster.
 
 # # Making customised landmask - not required here, using ROMS landmask 
 # reader_landmask = reader_global_landmask.Reader(
@@ -38,8 +38,16 @@ o.set_config('general:use_auto_landmask', False) # prevent opendrift from making
 # generic point release location for test
 lon0 = 177.269014281   
 lat0 = -37.8719 
-radius_in_m = 1000
 nb_parts = 1000
+radius_in_m = 1000
+
+# frame release
+# lons,lats = np.meshgrid(np.linspace(173.5, 173.8, 10),np.linspace(-42.6,-42.3, 10))
+# lon0 = np.ravel(lons)
+# lat0 = np.ravel(lats)
+# nb_parts = 100
+# radius_in_m = 0
+
 z = np.random.uniform(-50,0,size=nb_parts) # generate random depth
 # continuous release from tstart_release to tend_release within a 1000m radius
 o.seed_elements(lon0, lat0, 
@@ -70,12 +78,12 @@ o.set_config('seed:ocean_only',True) # keep only particles from the "frame" that
 o.set_config('drift:advection_scheme','runge-kutta4') # or 'runge-kutta'
 o.set_config('drift:current_uncertainty', 0.0 ) # note current_uncertainty can be used to replicate an horizontal diffusion spd_uncertain = sqrt(Kxy*2/dt)  
 o.set_config('drift:max_age_seconds', 10*24*3600) # 
-o.set_config('drift:lift_to_seafloor',True)
 o.set_config('drift:vertical_advection', False) 
 o.set_config('drift:vertical_mixing', True) 
 o.set_config('vertical_mixing:timestep', 90.0)  # if some ocean_vertical_diffusivity!=0, turbulentmixing:timestep should be << 900 seconds
 
 o.set_config('general:coastline_action','stranding') # option('none', 'stranding', 'previous', default='stranding')
+o.set_config('general:seafloor_action','lift_to_seafloor')
 
 o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 

@@ -24,11 +24,11 @@ o.add_reader([reader_norkyst, reader_arome])
 #%%
 # Seeding some particles
 time = reader_arome.start_time
-oiltype = 'GULLFAKS, EXXON'
-oiltype = 'ARABIAN MEDIUM, API'
-oiltype = 'ALGERIAN CONDENSATE'
+oil_type = 'GULLFAKS, EXXON'
+oil_type = 'ARABIAN MEDIUM, API'
+oil_type = 'ALGERIAN CONDENSATE'
 o.seed_elements(lon=4.9, lat=60.1, radius=3000, number=2000,
-                time=time, z=0, oiltype=oiltype)
+                time=time, z=0, oil_type=oil_type)
 
 #%%
 # Adjusting some configuration
@@ -47,7 +47,7 @@ print(o)
 o.plot(fast=True)
 o.plot_oil_budget()
 #o.plot(filename='openoil_drift')
-o.plot_vertical_distribution()
+o.plot_vertical_distribution(maxnum=100,bins=50)
 o.plot_property('water_fraction', mean=True)
 o.plot_property('z')
 #o.plot_property('mass_evaporated')
