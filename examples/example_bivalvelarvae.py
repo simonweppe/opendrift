@@ -37,7 +37,7 @@ o.set_config('environment:fallback:ocean_vertical_diffusivity',0.001) # m2/s
 # time = datetime.utcnow()
 o.seed_elements(lon=12.0, lat=68.3, z=-3.0,
                 radius=100, number=100,
-                time=nordic_native.start_time,neutral_buoyancy_salinity=31.25,
+                time=nordic_native.start_time,
                 terminal_velocity = 0.0)  
 
 ####################################################################################################################
