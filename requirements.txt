@@ -7,3 +7,4 @@ cartopy
 git+https://github.com/OpenDrift/OilLibrary
 git+https://github.com/OpenDrift/opendrift-landmask-data.git
 pysolar
+scikit-learn
