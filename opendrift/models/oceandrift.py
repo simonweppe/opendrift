@@ -37,12 +37,6 @@ class Lagrangian3DArray(LagrangianArray):
                 'fraction of the vind vector, in addition to currents '
                 'and Stokes drift',
                                'default': 0.02}),
-        ('current_drift_factor', {'dtype': np.float32,
-                                  'units': '1',
-            'description': 'Elements are moved with this fraction of the '
-                            'current vector, in addition to currents '
-                            'and Stokes drift',
-                               'default': 1}),
         ('terminal_velocity', {'dtype': np.float32,
                                'units': 'm/s',
             'description': 'Terminal rise/sinking velocity (buoyancy) '
@@ -452,17 +446,13 @@ class OceanDrift(OpenDriftSimulation):
             w = self.elements.terminal_velocity
 
             # Diffusivity and its gradient at z
-            zi = np.round(z_index(-self.elements.z)).astype(np.uint16)
+            zi = np.round(z_index(-self.elements.z)).astype(np.uint8)
             Kz = Kprofiles[zi, range(Kprofiles.shape[1])]
             dKdz = gradK[zi, range(Kprofiles.shape[1])]
 
-            # Visser et al. 1997 random walk mixing
+            # Visser et al. 1996 random walk mixing
             # requires an inner loop time step dt such that
             # dt << (d2K/dz2)^-1, e.g. typically dt << 15min
-            #
-            # NB: In the last term Kz is evaluated in zi, while
-            # it should be evaluated in (self.elements.z - dKdz*dt_mix)
-            # This is not expected have large impact on the result
             R = 2*np.random.random(self.num_elements_active()) - 1
             r = 1.0/3
             # New position  =  old position   - up_K_flux   + random walk
@@ -475,7 +465,7 @@ class OceanDrift(OpenDriftSimulation):
                 self.elements.z[reflect] = -self.elements.z[reflect]
 
             # Reflect elements going below seafloor
-            bottom = np.where(np.logical_and(self.elements.z < Zmin, self.elements.moving == 1))
+            bottom = np.where(self.elements.z < Zmin)
             if len(bottom[0]) > 0:
                 logger.debug('%s elements penetrated seafloor, lifting up' % len(bottom[0]))
                 self.elements.z[bottom] = 2*Zmin[bottom] - self.elements.z[bottom]
@@ -578,8 +568,7 @@ class OceanDrift(OpenDriftSimulation):
                                         filename,
                                         frames = len(times),
                                         fps = 10,
-                                        interval=50,
-                                        blit=False)
+                                        interval=50)
 
         logger.info('Time to make animation: %s' %
                     (datetime.now() - start_time))

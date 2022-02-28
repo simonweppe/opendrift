@@ -30,6 +30,7 @@ def test_on_land():
     assert r.__on_land__(np.array([10]), np.array([60])) == [True]
     assert r.__on_land__(np.array([5]), np.array([60])) == [False]
 
+
 @need_ne_shapes
 def test_global_array(test_data):
     shpfilename = shpreader.natural_earth(resolution='110m',
