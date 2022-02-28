@@ -18,13 +18,14 @@ o.add_readers_from_list(['https://thredds.met.no/thredds/dodsC/barents25km_agg']
 #%%
 # Imaginary oil spill in Hinlopen strait
 o.seed_elements(lon=19.1909, lat=79.5986, radius=50,
-                number=3000, time=datetime.utcnow() - timedelta(hours=12))
+                number=3000, time=datetime.utcnow() - timedelta(days=7))
 
 #%%
 # Adjusting some configuration
 o.set_config('processes:dispersion',  False)
 o.set_config('processes:evaporation',  False)
 o.set_config('processes:emulsification',  False)
+o.set_config('drift:horizontal_diffusivity', 10)
 o.set_config('drift:truncate_ocean_model_below_m', 3)
 
 #%%

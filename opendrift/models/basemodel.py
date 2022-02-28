@@ -382,7 +382,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 'max': 100000,
                 'units': 'm2/s',
                 'description': 'Add horizontal diffusivity (random walk)',
-                'level': self.CONFIG_LEVEL_ADVANCED
+                'level': self.CONFIG_LEVEL_BASIC
             },
             'drift:wind_uncertainty': {
                 'type': 'float',
@@ -561,6 +561,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
         for c, i in self._config.items():
             if c.startswith(prefix):
                 val = i['value'] if 'value' in i else None
+
+                val = val(self) if callable(val) else val
+
                 if i['type'] == 'bool':
                     rang = ''
                 elif i['type'] in ['float', 'int']:
@@ -680,6 +683,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 value = int(value)
         elif i['type'] == 'enum':
             if value not in i['enum']:
+                suggestion = ''
                 if len(i['enum']) > 5:
                     import difflib
                     matches = difflib.get_close_matches(value,
@@ -692,11 +696,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                         matches.sort()
                         suggestion = '\nDid you mean any of these?\n%s' % str(
                             matches)
-                else:
-                    suggestion = ''
                 raise ValueError(
-                    'Wrong configuration, possible values are:\n\t%s\n%s' %
-                    (i['enum'], suggestion))
+                    'Wrong configuration (%s=%s), possible values are:\n\t%s\n%s' %
+                    (key, value, i['enum'], suggestion))
 
         self._config[key]['value'] = value
 
@@ -832,6 +834,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
         elif i == 'deactivate':
             self.deactivate_elements(self.elements.z < -sea_floor_depth,
                                      reason='seafloor')
+            self.elements.z[below] = -sea_floor_depth[below]
         elif i == 'previous':  # Go back to previous position (in water)
             logger.warning('%s elements hit seafloor, '
                            'moving back ' % len(below))
@@ -1057,7 +1060,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             logger.debug(e)
             logger.warning('Reader could not be initialised, and is'
                            ' discarded: ' + lazyname)
-            self.discard_reader(reader)
+            self.discard_reader(reader, reason='could not be initialized')
             return self._initialise_next_lazy_reader()  # Call self
 
         reader.set_buffer_size(max_speed=self.max_speed)
@@ -1076,69 +1079,71 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
 
         return reader
 
-    def earliest_time(self):
-        return min(self.start_time, self.expected_end_time)
-
-    def latest_time(self):
-        return min(self.start_time, self.expected_end_time)
-
-    def reader_relevant(self, reader):
-        if hasattr(self,
-                   'expected_endtime') and reader.start_time is not None and (
-                       (reader.start_time > self.latest_time()
-                        or reader.end_time < self.earliest_time())):
-            logger.debug('Reader does not cover simulation period')
-            return False
-        if len(set(self.required_variables) & set(reader.variables)) == 0:
-            logger.debug('Reader does not contain any relevant variables')
-            return False
-        return True
-
     def discard_reader_if_not_relevant(self, reader):
-        if hasattr(self,
-                   'expected_endtime') and reader.start_time is not None and (
-                       (reader.start_time > self.latest_time()
-                        or reader.end_time < self.earliest_time())):
-            logger.debug('Reader does not cover simulation period')
-            self.discard_reader(reader)
-            return True
+        if reader.is_lazy:
+            return False
+        if reader.start_time is not None:
+            if hasattr(self, 'expected_end_time') and reader.start_time > self.expected_end_time:
+                self.discard_reader(reader, 'starts after simulation end')
+                return True
+            if hasattr(self, 'start_time') and reader.end_time < self.start_time:
+                self.discard_reader(reader, 'ends before simuation start')
+                return True
+            if hasattr(self, 'time') and reader.end_time < self.time:
+                self.discard_reader(reader, 'ends before simuation is finished')
+                return True
         if len(set(self.required_variables) & set(reader.variables)) == 0:
-            logger.debug('Reader does not contain any relevant variables')
-            self.discard_reader(reader)
+            self.discard_reader(reader, reason='does not contain any relevant variables')
             return True
-        return False
+        if not hasattr(reader, 'checked_for_overlap'):
+            if not reader.global_coverage():
+                if not hasattr(self, 'simulation_extent'):
+                    logger.warning('Simulation has no simulation_extent, cannot check reader coverage')
+                    return False
+                # TODO
+                # need a better coverage/overlap check below
+                corners = reader.xy2lonlat([reader.xmin, reader.xmin, reader.xmax, reader.xmax],
+                                           [reader.ymax, reader.ymin, reader.ymax, reader.ymin])
+                rlonmin = np.min(corners[0])
+                rlonmax = np.max(corners[0])
+                rlatmin = np.min(corners[1])
+                rlatmax = np.max(corners[1])
+                if hasattr(reader, 'proj4') and 'stere' in reader.proj4 and 'lat_0=90' in reader.proj4:
+                    rlatmax = 90
+                if hasattr(reader, 'proj4') and 'stere' in reader.proj4 and 'lat_0=-90' in reader.proj4:
+                    rlatmin = -90
+                if rlatmin > self.simulation_extent[3]:
+                    self.discard_reader(reader, reason='too far north')
+                    return True
+                if rlatmax < self.simulation_extent[1]:
+                    self.discard_reader(reader, reason='too far south')
+                    return True
+                if rlonmax < self.simulation_extent[0]:
+                    self.discard_reader(reader, reason='too far west')
+                    return True
+                if rlonmin > self.simulation_extent[2]:
+                    self.discard_reader(reader, reason='too far east')
+                    return True
+            reader.checked_for_overlap = True
 
-    def discard_reader(self, reader):
+        return False  # Reader is not discarded
+
+    def discard_reader(self, reader, reason):
         readername = reader.name
-        logger.debug('Discarding reader: ' + readername)
+        logger.debug('Discarding reader (%s): %s' % (reason, readername))
         del self.readers[readername]
         if not hasattr(self, 'discarded_readers'):
-            self.discarded_readers = [readername]
+            self.discarded_readers = {readername: reason}
         else:
-            self.discarded_readers.append(readername)
+            self.discarded_readers[readername] = reason
 
         # Remove from priority list
-        for var in self.priority_list:
+        for var in self.priority_list.copy():
             self.priority_list[var] = [
                 r for r in self.priority_list[var] if r != readername
             ]
             if len(self.priority_list[var]) == 0:
                 del self.priority_list[var]
-
-    def discard_irrelevant_readers(self):
-        discard = []
-
-        for readername in self.readers:
-            reader = self.readers[readername]
-            if reader.is_lazy:
-                continue
-
-            if not self.reader_relevant(reader):
-                discard.append(reader)
-
-        for reader in discard:
-            self.discard_reader(reader)
-            logger.debug('DISCARDED: ' + reader.name)
 
     def get_environment(self, variables, time, lon, lat, z, profiles):
         '''Retrieve environmental variables at requested positions.
@@ -1163,7 +1168,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             self.set_fallback_values(refresh=False)
 
         # Discard any existing readers which are not relevant
-        self.discard_irrelevant_readers()
+        for readername, reader in self.readers.copy().items():
+            self.discard_reader_if_not_relevant(reader)
 
         if 'drift:truncate_ocean_model_below_m' in self._config:
             truncate_depth = self.get_config(
@@ -1669,6 +1675,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                            self.elements_scheduled.lat.max() + deltalat)
             ])
             o = OceanDrift(loglevel='custom')
+            if hasattr(self, 'simulation_extent'):
+                o.simulation_extent = self.simulation_extent
             o.add_reader(reader_landmask)
             land_reader = reader_landmask
         else:
@@ -2404,9 +2412,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             logger.debug('Horizontal diffusivity is 0, no random walk.')
             return
         dt = np.abs(self.time_step.total_seconds())
-        x_vel = self.elements.moving * np.sqrt(2 * D / dt) * np.random.normal(
+        x_vel = self.elements.moving * np.sqrt(2*D/dt) * np.random.normal(
             scale=1, size=self.num_elements_active())
-        y_vel = self.elements.moving * np.sqrt(2 * D / dt) * np.random.normal(
+        y_vel = self.elements.moving * np.sqrt(2*D/dt) * np.random.normal(
             scale=1, size=self.num_elements_active())
         speed = np.sqrt(x_vel * x_vel + y_vel * y_vel)
         logger.debug(
@@ -2430,6 +2438,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
         # Deactivate elements, if they have not already been deactivated
         self.elements.status[indices & (self.elements.status ==0)] = \
             reason_number
+        self.elements.moving[indices] = 0
         logger.debug('%s elements scheduled for deactivation (%s)' %
                      (np.sum(indices), reason))
         logger.debug(
@@ -2691,11 +2700,13 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                        self.elements_scheduled.lon.min() - deltalon),
             np.maximum(-89,
                        self.elements_scheduled.lat.min() - deltalat),
-            np.minimum(720,
+            np.minimum(360,
                        self.elements_scheduled.lon.max() + deltalon),
             np.minimum(89,
                        self.elements_scheduled.lat.max() + deltalat)
         ]
+        if simulation_extent[2] == 360 and simulation_extent[0] < 0:
+            simulation_extent[0] = 0
         logger.debug(
             'Preparing readers for simulation coverage (%s) and time (%s to %s)'
             % (simulation_extent, self.start_time, self.expected_end_time))
@@ -2705,6 +2716,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                            start_time=self.start_time,
                            end_time=self.expected_end_time,
                            max_speed=self.max_speed)
+        # Store expected simulation extent, to check if new readers have coverage
+        self.simulation_extent = simulation_extent
 
         ##############################################################
         # If no landmask has been added, we determine it dynamically
@@ -2740,16 +2753,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             self.add_reader(reader_landmask)
 
             self.timer_end('preparing main loop:making dynamical landmask')
-
-        # Move point seeded on land to ocean
-        if self.get_config('seed:ocean_only') is True and \
-            ('land_binary_mask' in self.required_variables):
-            #('land_binary_mask' not in self.fallback_values) and \
-            self.timer_start('preparing main loop:moving elements to ocean')
-            self.elements_scheduled.lon, self.elements_scheduled.lat = \
-                self.closest_ocean_points(self.elements_scheduled.lon,
-                                          self.elements_scheduled.lat)
-            self.timer_end('preparing main loop:moving elements to ocean')
 
         ####################################################################
         # Preparing history array for storage in memory and eventually file
@@ -2808,6 +2811,16 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             self.io_init(outfile)
         else:
             self.outfile = None
+
+        # Move point seeded on land to ocean
+        if self.get_config('seed:ocean_only') is True and \
+            ('land_binary_mask' in self.required_variables):
+            #('land_binary_mask' not in self.fallback_values) and \
+            self.timer_start('preparing main loop:moving elements to ocean')
+            self.elements_scheduled.lon, self.elements_scheduled.lat = \
+                self.closest_ocean_points(self.elements_scheduled.lon,
+                                          self.elements_scheduled.lat)
+            self.timer_end('preparing main loop:moving elements to ocean')
 
         #############################
         # Check validity domain
@@ -2983,7 +2996,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             self.io_close()
 
         # Remove any elements scheduled for deactivation during last step
-        #self.remove_deactivated_elements()
+        self.remove_deactivated_elements()
 
         if export_buffer_length is None:
             # Remove columns for unseeded elements in history array
@@ -3047,9 +3060,13 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
 
         ID_ind = self.elements.ID - 1
         time_ind = self.steps_output - 1 - self.steps_exported
+        if self.steps_calculation == self.expected_steps_calculation:
+            final_time_step = True
+        else:
+            final_time_step = False
 
         if steps_calculation_float.is_integer() or self.time_step < timedelta(
-                seconds=1):
+                seconds=1) or final_time_step is True:
             element_ind = range(len(ID_ind))  # We write all elements
         else:
             deactivated = np.where(self.elements.status != 0)[0]
@@ -3269,6 +3286,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                                      width=lonmx - lonmn,
                                                      height=latmx - latmn,
                                                      transform=ccrs.Geodetic(),
+                                                     zorder=10,
                                                      **bx)
                 ax.add_patch(patch)
 
@@ -3338,6 +3356,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                   corners=None,
                   filename=None,
                   compare=None,
+                  compare_marker='o',
                   background=None,
                   bgalpha=.5,
                   vmin=None,
@@ -3365,6 +3384,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                   fps=8,
                   lscale=None,
                   fast=False,
+                  blit=False,
                   **kwargs):
         """Animate last run."""
 
@@ -3434,17 +3454,21 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
 
         def plot_timestep(i):
             """Sub function needed for matplotlib animation."""
+
+            ret = [points, points_deactivated]  # list of elements to return for blitting
             ax.set_title('%s\n%s UTC' % (self._figure_title(), times[i]))
             if background is not None:
+                ret.append(bg)
                 if isinstance(background, xr.DataArray):
                     scalar = background[i, :, :].values
                 else:
-                    map_x, map_y, scalar, u_component, v_component, qmap_x, qmap_y = \
+                    map_x, map_y, scalar, u_component, v_component = \
                         self.get_map_background(ax, background,
                                                 time=times[i])
                 # https://stackoverflow.com/questions/18797175/animation-with-pcolormesh-routine-in-matplotlib-how-do-i-initialize-the-data
                 bg.set_array(scalar[:-1, :-1].ravel())
                 if type(background) is list:
+                    ret.append(bg_quiv)
                     bg_quiv.set_UVC(u_component[::skip, ::skip],
                                     v_component[::skip, ::skip])
 
@@ -3461,6 +3485,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             if density is True:
                 # Update density plot
                 pm.set_array(H[i, :, :].ravel())
+                ret.append(pm)
 
             # Move points
             if show_elements is True:
@@ -3479,6 +3504,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
 
                 if color is not False:  # Update colors
                     points.set_array(colorarray[:, i])
+                    if compare is not None:
+                        for cd in compare_list:
+                            cd['points_other'].set_array(colorarray[:, i])
                     if isinstance(color, str) or hasattr(color, '__len__'):
                         points_deactivated.set_array(colorarray_deactivated[
                             index_of_last_deactivated < i])
@@ -3486,6 +3514,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             if drifter is not None:
                 drifter_pos.set_offsets(np.c_[drifter['x'][i],
                                               drifter['y'][i]])
+                ret.append(drifter_pos)
 
             if show_elements is True:
                 if compare is not None:
@@ -3500,9 +3529,10 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                 cd['index_of_last_deactivated_other'] < i],
                             cd['y_other_deactive'][
                                 cd['index_of_last_deactivated_other'] < i]])
-                    return points, cd['points_other'],
-                else:
-                    return points,
+                        ret.append(cd['points_other'])
+                        ret.append(cd['points_other_deactivated'])
+
+            return ret
 
         # Find map coordinates and plot points with empty data
         fig, ax, crs, x, y, index_of_first, index_of_last = \
@@ -3543,13 +3573,14 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 scalar = background[0, :, :]
                 map_y, map_x = np.meshgrid(map_y, map_x)
             else:
-                map_x, map_y, scalar, u_component, v_component, qmap_x, qmap_y = \
+                map_x, map_y, scalar, u_component, v_component = \
                     self.get_map_background(ax, background,
                                             time=self.start_time)
             bg = ax.pcolormesh(map_x,
                                map_y,
                                scalar[:-1, :-1],
                                alpha=bgalpha,
+                               zorder=1,
                                antialiased=True,
                                linewidth=0.0,
                                rasterized=True,
@@ -3558,11 +3589,12 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                cmap=cmap,
                                transform=gcrs)
             if type(background) is list:
-                bg_quiv = ax.quiver(qmap_x[::skip, ::skip],
-                                    qmap_y[::skip, ::skip],
+                bg_quiv = ax.quiver(map_x[::skip, ::skip],
+                                    map_y[::skip, ::skip],
                                     u_component[::skip, ::skip],
                                     v_component[::skip, ::skip],
                                     scale=scale,
+                                    zorder=1,
                                     transform=gcrs)
 
         if lcs is not None:
@@ -3658,14 +3690,17 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                     legstr = legend[cn + 1]
                 else:
                     legstr = None
+                if color is False:
+                    c = self.plot_comparison_colors[cn+1]
+                else:
+                    c = []
                 cd['points_other'] = \
-                    ax.scatter([], [], c=self.plot_comparison_colors[cn+1],
+                    ax.scatter([], [], c=c, marker=compare_marker, cmap=cmap,
                                s=markersize, label=legstr, zorder=10, transform = gcrs)
                 # Plot deactivated elements, with transparency
                 cd['points_other_deactivated'] = \
-                    ax.scatter([], [], alpha=.3, zorder=9,
-                               c=self.plot_comparison_colors[cn+1],
-                               s=markersize, transform = gcrs)
+                    ax.scatter([], [], alpha=.3, zorder=9, marker=compare_marker, cmap=cmap,
+                               c=c, s=markersize, transform = gcrs)
 
             if legend != ['', '']:
                 plt.legend(markerscale=2, loc=legend_loc)
@@ -3753,19 +3788,22 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
         if compare is not None:
             frames = min(x.shape[0], cd['x_other'].shape[1])
 
+        # blit is now provided to animation()
+        #blit = sys.platform != 'darwin'  # blitting does not work on mac os
+
         self.__save_or_plot_animation__(plt.gcf(),
                                         plot_timestep,
                                         filename,
                                         frames,
                                         fps,
-                                        interval=50)
+                                        interval=50,
+                                        blit = blit)
 
         logger.info('Time to make animation: %s' %
                     (datetime.now() - start_time))
 
     def __save_or_plot_animation__(self, figure, plot_timestep, filename,
-                                   frames, fps, interval):
-        blit = sys.platform != 'darwin'  # blitting does not work on mac os
+                                   frames, fps, interval, blit):
 
         if filename is not None or 'sphinx_gallery' in sys.modules:
             logger.debug("Saving animation..")
@@ -3779,7 +3817,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
 
         else:
             logger.debug("Showing animation..")
-            animation.FuncAnimation(figure,
+            anim=animation.FuncAnimation(figure,
                                     plot_timestep,
                                     blit=blit,
                                     frames=frames,
@@ -3829,9 +3867,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 points_other_deactivated.set_data(
                     x_other_deactive[index_of_last_deactivated_other < i],
                     z_other_deactive[index_of_last_deactivated_other < i])
-                return points, points_other
+                return points, points_deactivated, points_other,
             else:
-                return points
+                return points, points_deactivated,
 
         PlotColors = (compare is None) and (legend != ['', ''])
         if PlotColors:
@@ -3946,7 +3984,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                         filename,
                                         x.shape[1],
                                         fps,
-                                        interval=150)
+                                        interval=150,
+                                        blit=False)
 
         logger.info('Time to make animation: %s' %
                     (datetime.now() - start_time))
@@ -4332,7 +4371,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 lat_res = lat_res.T
                 map_x, map_y = (lon_res, lat_res)
             else:
-                map_x, map_y, scalar, u_component, v_component, qmap_x, qmap_y = \
+                map_x, map_y, scalar, u_component, v_component = \
                     self.get_map_background(ax, background, time=time)
                 #self.time_step_output)
 
@@ -4343,6 +4382,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                              map_y,
                                              scalar,
                                              alpha=bgalpha,
+                                             zorder=1,
                                              vmin=vmin,
                                              vmax=vmax,
                                              cmap=cmap,
@@ -4383,14 +4423,12 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                     cb.set_label(str(background))
 
         if type(background) is list:
-            delta_x = (map_x[1, 2] - map_x[1, 1]) / 2.
-            delta_y = (map_y[2, 1] - map_y[1, 1]) / 2.
-            ax.quiver(qmap_x[::skip, ::skip] + delta_x,
-                      qmap_y[::skip, ::skip] + delta_y,
+            ax.quiver(map_x[::skip, ::skip],
+                      map_y[::skip, ::skip],
                       u_component[::skip, ::skip],
                       v_component[::skip, ::skip],
                       scale=scale,
-                      transform=gcrs)
+                      transform=gcrs, zorder=1)
 
         if lcs is not None:
             map_x_lcs, map_y_lcs = (lcs['lon'], lcs['lat'])
@@ -4400,6 +4438,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                           alpha=1,
                           vmin=vmin,
                           vmax=vmax,
+                          zorder=0,
                           cmap=cmap,
                           transform=gcrs)
 
@@ -4527,25 +4566,18 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 scalar = scalar[0]
             u_component = v_component = None
 
-        # Shift one pixel for correct plotting
-        reader_x = reader_x - reader.delta_x
-        reader_y = reader_y - reader.delta_y
         if reader.projected is False:
             reader_y[reader_y < 0] = 0
             reader_x[reader_x < 0] = 0
 
         rlons, rlats = reader.xy2lonlat(reader_x, reader_y)
-        qrlons, qrlats = reader.xy2lonlat(reader_x + reader.delta_x / 2,
-                                          reader_y + reader.delta_y / 2)
         if rlons.max() > 360:
             rlons = rlons - 360
-            qrlons = qrlons - 360
         map_x, map_y = (rlons, rlats)
-        qmap_x, qmap_y = (qrlons, qrlats)
 
         scalar = np.ma.masked_invalid(scalar)
 
-        return map_x, map_y, scalar, u_component, v_component, qmap_x, qmap_y
+        return map_x, map_y, scalar, u_component, v_component
 
     def get_lonlat_bins(self, pixelsize_m):
         latmin = self.latmin
@@ -4780,6 +4812,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
         lon_array = (lon_array[0:-1] + lon_array[1::]) / 2
         lat_array = (lat_array[0:-1] + lat_array[1::]) / 2
 
+        from netCDF4 import Dataset, date2num
         nc = Dataset(filename, 'w')
         nc.createDimension('lon', len(lon_array))
         nc.createDimension('lat', len(lat_array))
@@ -5189,8 +5222,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 outStr += '  ' + lr + '\n'
         if hasattr(self, 'discarded_readers'):
             outStr += '\nDiscarded readers:\n'
-            for dr in self.discarded_readers:
-                outStr += '  ' + dr + '\n'
+            for dr, reason in self.discarded_readers.items():
+                outStr += '  %s (%s)\n' % (dr, reason)
         if hasattr(self, 'time'):
             outStr += '\nTime:\n'
             outStr += '\tStart: %s\n' % (self.start_time)
@@ -5420,3 +5453,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
         #del self.elements
         self.elements_deactivated = self.ElementType()  # Empty array
         self.elements = self.ElementType()  # Empty array
+
+
+    def gui_postproc(self):
+        '''To be overloaded by subclasses'''
+        pass

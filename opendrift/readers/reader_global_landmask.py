@@ -88,6 +88,7 @@ def plot_land(ax, lonmin, latmin, lonmax, latmax, fast, ocean_color = 'white', l
         from matplotlib import colors
         cmap = colors.ListedColormap([ocean_color, land_color])
         ax.imshow(img, origin = 'lower', extent=[lonmin, lonmax, latmin, latmax],
+                  zorder=0,
                     transform=ccrs.PlateCarree(), cmap=cmap)
 
     def show_landmask_old(landmask):
@@ -105,12 +106,15 @@ def plot_land(ax, lonmin, latmin, lonmax, latmax, fast, ocean_color = 'white', l
         xm, ym = landmask.invtransform * (x, y)
         xm = xm.astype(np.int32)
         ym = ym.astype(np.int32)
+        # TODO:
+        # this may fail for small maps if xm[0]==xm[1] or ym[0]==ym[1]
 
         img = landmask.mask[ym[0]:ym[1]:ndy, xm[0]:xm[1]:ndx]
 
         from matplotlib import colors
         cmap = colors.ListedColormap([ocean_color, land_color])
         ax.imshow(img, origin = 'lower', extent=[lonmin, lonmax, latmin, latmax],
+                  zorder=0,
                     transform=ccrs.PlateCarree(), cmap=cmap)
 
     extent = [lonmin, latmin, lonmax, latmax]
@@ -131,6 +135,7 @@ def plot_land(ax, lonmin, latmin, lonmax, latmax, fast, ocean_color = 'white', l
 
             ax.add_geometries(polys,
                     ccrs.PlateCarree(),
+                    zorder=2,
                     facecolor=land_color,
                     edgecolor='black')
         else:

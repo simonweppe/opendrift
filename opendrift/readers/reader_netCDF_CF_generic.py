@@ -307,7 +307,6 @@ class Reader(StructuredReader, BaseReader):
             self.xmin -= 360
             self.xmax -= 360
             self.x -= 360
-            self.x -= 360
 
         ##########################################
         # Find all variables having standard_name
@@ -491,8 +490,8 @@ class Reader(StructuredReader, BaseReader):
         else:
             variables['x'] = indx
             variables['y'] = indy
-        variables['x'] = np.asarray(variables['x'])
-        variables['y'] = np.asarray(variables['y'])
+        variables['x'] = np.asarray(variables['x'], dtype=np.float32)
+        variables['y'] = np.asarray(variables['y'], dtype=np.float32)
 
         variables['time'] = nearestTime
 

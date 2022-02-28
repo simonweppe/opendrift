@@ -86,7 +86,13 @@ class LeewayObj(LagrangianArray):
         ('crosswind_eps', {'dtype': np.float32,
                           'units': 'cm/s',
                            'seed': False,
-                          'default': 0})
+                          'default': 0}),
+        ('current_drift_factor', {'dtype': np.float32,
+                                  'units': '1',
+                'description': 'Elements are moved with this fraction of the '
+                            'current vector, in addition to currents '
+                            'and Stokes drift',
+                               'default': 1})
         ])
 
 
@@ -432,7 +438,7 @@ class Leeway(OpenDriftSimulation):
 
     def _substance_name(self):
         # TODO: find a better algorithm to return name of object category
-        if hasattr(self, 'history'):
+        if self.history is not None:
             object_type = self.history['object_type'][0,0]
             if not np.isfinite(object_type):  # For backward simulations
                 object_type = self.history['object_type'][-1,0]
