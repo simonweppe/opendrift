@@ -132,10 +132,10 @@ class LobsterLarvae(BivalveLarvae):
         self._add_config({ 'biology:mid_stage_phyllosoma': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
                            'description': 'minimum age age of middle stage phyllosoma',
                            'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'biology:max_swimming_speed_puerulus': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'centimeters.seconds^-1',
+        self._add_config({ 'biology:max_swimming_speed_puerulus': {'type': 'float', 'default': 30.0,'min': 0.0, 'max': 1.0e10, 'units': 'centimeters.seconds^-1',
                            'description': 'maximum swimming speed of the puerulus when crusing toward the habitat',
                            'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'biology:min_swimming_speed_puerulus': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'centimeters.seconds^-1',
+        self._add_config({ 'biology:min_swimming_speed_puerulus': {'type': 'float', 'default': 10.0,'min': 0.0, 'max': 1.0e10, 'units': 'centimeters.seconds^-1',
                            'description': 'minimum swimming speed of the puerulus when crusing toward the habitat',
                            'level': self.CONFIG_LEVEL_BASIC}})
         # vertical motion, as in pelagicplankton_moana.py
@@ -146,7 +146,7 @@ class LobsterLarvae(BivalveLarvae):
                            'description': 'the depth a species is expected to inhabit during the night time, in meters, negative down',
                            'level': self.CONFIG_LEVEL_BASIC}})
         self._add_config({ 'biology:vertical_migration_speed_constant': {'type': 'float', 'default': 1.0e-4,'min': 0.0, 'max': 1.0e-3, 'units': 'm/s',
-                           'description': 'Constant vertical migration rate (m/s), if None, use values from update_terminal_velocity()',
+                           'description': 'Constant vertical migration rate (m/s) towards vertical_position_daytime and vertical_position_nighttime levels',
                            'level': self.CONFIG_LEVEL_BASIC}})
         self._add_config({ 'biology:maximum_larvae_depth': {'type': 'float', 'default': -100.0,'min': -10000.0, 'max': -1.0, 'units': 'm',
                            'description': 'maximum depth the larvae can swim down to, larvae will swim up if reached',
@@ -271,7 +271,7 @@ class LobsterLarvae(BivalveLarvae):
             # beta distribution to reproduce the findings in Jeffs and Hollands 2000 (speeds from 13 and 22cm/s with outlier at 30.7cm/s) 
             # and Wilkin and Jeffs 2011 (model predictions btwn 13 and 16cm/s) (mean = 1/(1+B/A) => 16.8cm/s here with a=2 and b=8)
             # Not age dependent because puerulus do not develop further until they reach an habitat
-            # swim_speed = (Vmin + random.beta*(Vmax-Vmin) ) (* dt ???)
+            # swim_speed = (Vmin + random.beta*(Vmax-Vmin) )
             # 
             # Jeffs and Hollands,2000,Swimming behaviour of the puerulus of the spiny lobster, Jasus edwardsii.Crustaceana 73(7):847-856
             
@@ -311,8 +311,8 @@ class LobsterLarvae(BivalveLarvae):
                 self.calculateMaxSunLight() # compute solar radiation at particle positions (using PySolar)
                 vertical_velocity = np.abs(self.get_config('biology:vertical_migration_speed_constant'))  # magnitude in m/s 
                 z_day = self.get_config('biology:vertical_position_daytime')    #  the depth a species is expected to inhabit during the day time, in meters, negative down') #
-                z_night =self.get_config('biology:vertical_position_nighttime') # 'the depth a species is expected to inhabit during the night time, in meters, negative down') #
-                ind_day =   np.where(late_stage_phy & (self.elements.light>0) )     #np.where(self.elements.light[late_stage_phy]>0)
+                z_night = self.get_config('biology:vertical_position_nighttime') # 'the depth a species is expected to inhabit during the night time, in meters, negative down') #
+                ind_day = np.where(late_stage_phy & (self.elements.light>0) )     #np.where(self.elements.light[late_stage_phy]>0)
                 ind_night = np.where(late_stage_phy & (self.elements.light == 0) )  #np.where(self.elements.light[late_stage_phy]==0)
                 logger.debug('Using constant migration rate (%s m/s) towards day and night time positions' % (vertical_velocity) )
                 logger.debug('%s particles in day time' % (len(ind_day[0])))
