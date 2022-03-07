@@ -127,7 +127,7 @@ class PelagicPlanktonDrift(OceanDrift):
 
     # Default colors for plotting
     status_colors = {'initial': 'green', 'active': 'blue',
-                     'hatched': 'red', 'eaten': 'yellow', 'died': 'magenta'}
+                     'died': 'magenta'}
 
     def __init__(self, *args, **kwargs):
 
@@ -323,6 +323,7 @@ class PelagicPlanktonDrift(OceanDrift):
         self.update_survival() # mortality based on user-input mortality rate
         self.update_weight_temperature() # # mortality based on "liveable" temperature range
         self.update_weight_salinity() # # mortality based on "liveable" salinity range
+        self.deactivate_elements(self.elements.survival == 0.0 ,reason = 'died') # deactivate particles that died
 
     def update_survival(self):
         # update survval fraction based on mortality rate in [day-1]

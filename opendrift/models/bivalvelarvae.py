@@ -346,7 +346,7 @@ class BivalveLarvae(OceanDrift):
 
                 logger.debug('%s elements hit coastline' % len(on_land))
                 logger.debug('moving %s elements younger than min_settlement_age_seconds back to previous water position' % len(on_land_and_younger))
-                logger.debug('%s elements older than min_settlement_age_seconds remain stranded on coast' % len(on_land_and_younger))
+                logger.debug('%s elements older than min_settlement_age_seconds remain stranded on coast : status = settled_on_coast' % len(on_land_and_older))
                 
                 # refloat elements younger than min_settlement_age back to previous position(s)
                 if len(on_land_and_younger) > 0 :
@@ -357,7 +357,6 @@ class BivalveLarvae(OceanDrift):
                     self.elements.lon[on_land_and_younger] = np.copy(self.previous_lon[on_land_and_younger_ID - 1])
                     self.elements.lat[on_land_and_younger] = np.copy(self.previous_lat[on_land_and_younger_ID - 1])
                     self.environment.land_binary_mask[on_land_and_younger] = 0
-
                 # deactivate elements older than min_settlement_age & save position
                 # ** function expects an array of size consistent with self.elements.lon
                 self.deactivate_elements((self.environment.land_binary_mask == 1) & \
