@@ -305,7 +305,8 @@ class BivalveLarvae(OceanDrift):
         if self.newly_seeded_IDs is not None:
             self.deactivate_elements(
                 (self.environment.land_binary_mask == 1) &
-                (self.elements.ID >= self.newly_seeded_IDs[0]),
+                # (self.elements.ID >= self.newly_seeded_IDs[0]),
+                (self.elements.age_seconds == self.time_step.total_seconds()),
                 reason='seeded_on_land')
         on_land = np.where(self.environment.land_binary_mask == 1)[0]
 
