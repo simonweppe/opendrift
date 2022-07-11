@@ -159,8 +159,8 @@ class Reader(BaseReader,UnstructuredReader):
             if 'shore_file' in kwargs:
                 logger.debug('Also adding static shoreline file %s for additionnal on-land particles' %  kwargs['shore_file'])
                 self.shore_file = kwargs['shore_file']
-                self.shore_landmask = self.load_shoreline_landmask()
-                        
+                self.shore_landmask = self.load_shoreline_landmask() # add self.shore_landmask as prepared geometry
+
         logger.debug('Finding coordinate variables.')
         # Find x, y and z coordinates
         for var_name in self.dataset.variables:
@@ -356,7 +356,7 @@ class Reader(BaseReader,UnstructuredReader):
         # since the shoreline details will be covered by the landmask.
         # 
         # **** Depreciated **** 
-        # >> Now using prepared geometry rather than Matplotlib Path (as in unstructured .py)
+        # >> Now using prepared geometry rather than Matplotlib Path (as in unstructured.py)
         # https://sparkgeo.com/blog/using-prepared-geometries-in-shapely/
 
         hull_obj = ConvexHull(np.vstack([x,y]).T)
@@ -377,7 +377,6 @@ class Reader(BaseReader,UnstructuredReader):
             it means we need to recompute the KDtree of the subset nodes every time in ReaderBlockUnstruct.
             
             Speed gain to be tested ...
-            
         """
         requested_variables, time, x, y, z, outside = \
             self.check_arguments(requested_variables, time, x, y, z)
@@ -976,6 +975,7 @@ class Reader(BaseReader,UnstructuredReader):
         # We can pass multiple Polygon -objects into our MultiPolygon as a list
         landmask = MultiPolygon(poly)
         landmask = shapely.prepared.prep(landmask)
+        # self.shore_landmask = landmask
         return landmask
 
     def plot_mesh(self, variable=None, vmin=None, vmax=None,
