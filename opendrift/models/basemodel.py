@@ -2407,20 +2407,21 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
 
     def horizontal_diffusion(self):
         """Move elements with random walk according to given horizontal diffuivity."""
-        D = self.get_config('drift:horizontal_diffusivity')
-        if D == 0:
-            logger.debug('Horizontal diffusivity is 0, no random walk.')
-            return
-        dt = np.abs(self.time_step.total_seconds())
-        x_vel = self.elements.moving * np.sqrt(2*D/dt) * np.random.normal(
-            scale=1, size=self.num_elements_active())
-        y_vel = self.elements.moving * np.sqrt(2*D/dt) * np.random.normal(
-            scale=1, size=self.num_elements_active())
-        speed = np.sqrt(x_vel * x_vel + y_vel * y_vel)
-        logger.debug(
-            'Moving elements according to horizontal diffusivity of %s, with speeds between %s and %s m/s'
-            % (D, speed.min(), speed.max()))
-        self.update_positions(x_vel, y_vel)
+        if self.num_elements_active()>0 :
+            D = self.get_config('drift:horizontal_diffusivity')
+            if D == 0:
+                logger.debug('Horizontal diffusivity is 0, no random walk.')
+                return
+            dt = np.abs(self.time_step.total_seconds())
+            x_vel = self.elements.moving * np.sqrt(2*D/dt) * np.random.normal(
+                scale=1, size=self.num_elements_active())
+            y_vel = self.elements.moving * np.sqrt(2*D/dt) * np.random.normal(
+                scale=1, size=self.num_elements_active())
+            speed = np.sqrt(x_vel * x_vel + y_vel * y_vel)
+            logger.debug(
+                'Moving elements according to horizontal diffusivity of %s, with speeds between %s and %s m/s'
+                % (D, speed.min(), speed.max()))
+            self.update_positions(x_vel, y_vel)
 
     def deactivate_elements(self, indices, reason='deactivated'):
         """Schedule deactivated particles for deletion (at end of step)"""
