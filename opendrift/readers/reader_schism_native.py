@@ -103,7 +103,9 @@ class Reader(BaseReader,UnstructuredReader):
             'zcor' : 'vertical_levels', # time-varying vertical coordinates
             'sigma': 'ocean_s_coordinate',
             'vertical_velocity' : 'upward_sea_water_velocity',
-            'wetdry_elem': 'land_binary_mask' }
+            'wetdry_elem': 'land_binary_mask',
+            'wind_speed' : 'x_wind',
+            'wind_speed' : 'y_wind' }
             # diffusivity
             # viscosity
 
@@ -316,7 +318,10 @@ class Reader(BaseReader,UnstructuredReader):
                     pass   
                 elif var_name == 'dahv' and not self.use_3d: # then use depth-averaged data
                     self.variable_mapping['x_sea_water_velocity'] = str(var_name)
-                    self.variable_mapping['y_sea_water_velocity'] = str(var_name)                 
+                    self.variable_mapping['y_sea_water_velocity'] = str(var_name)
+                elif var_name == 'wind_speed' and not self.use_3d: # wind speed vectors
+                    self.variable_mapping['x_wind'] = str(var_name)
+                    self.variable_mapping['y_wind'] = str(var_name)                  
                 else: # standard mapping                                    
                     self.variable_mapping[schism_mapping[var_name]] = \
                         str(var_name) 
@@ -392,8 +397,8 @@ class Reader(BaseReader,UnstructuredReader):
 
         # extracts the full slices of requested_variables at time indxTime
         for par in requested_variables:
-            if par not in ['x_sea_water_velocity','y_sea_water_velocity','land_binary_mask'] :
-                # standard case - for all variables except current velocities
+            if par not in ['x_sea_water_velocity','y_sea_water_velocity','land_binary_mask','x_wind','y_wind'] :
+                # standard case - for all variables except vectors such as current, wind, etc..
                 var = self.dataset.variables[self.variable_mapping[par]]
                 if var.ndim == 1:
                     data = var[:] # e.g. depth
@@ -410,15 +415,15 @@ class Reader(BaseReader,UnstructuredReader):
                 else:
                     raise ValueError('Wrong dimension of %s: %i' %
                                      (self.variable_mapping[par], var.ndim))
-            elif par in ['x_sea_water_velocity','y_sea_water_velocity'] :               
-                # requested variables are current velocities
-                # In SCHISM netcdf filesboth [u,v] components are saved 
+            elif par in ['x_sea_water_velocity','y_sea_water_velocity','x_wind','y_wind'] :               
+                # requested variables are vectors : current or wind velocities
+                # In SCHISM netcdf files, both [u,v] components are saved 
                 # as two different dimensions of the same variable.
                 var = self.dataset.variables[self.variable_mapping[par]]
-                if var.ndim == 3: # depth-averaged current data 'dahv' defined at each node and time [time,node,2]
-                    if par == 'x_sea_water_velocity':
+                if var.ndim == 3: # depth-averaged current data 'dahv', or 'wind_speed' defined at each node and time [time,node,2]
+                    if par in ['x_sea_water_velocity','x_wind']:
                        data = var[indxTime,:,0]
-                    elif par == 'y_sea_water_velocity':
+                    elif par in ['y_sea_water_velocity','y_wind']:
                        data = var[indxTime,:,1] 
                     logger.debug('reading 2D velocity data from unstructured reader %s' % (par))
 
