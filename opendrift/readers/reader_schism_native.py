@@ -73,10 +73,9 @@ class Reader(BaseReader,UnstructuredReader):
             use_3d      :   switch to use 3d flows (if available)
             use_model_landmask  : switch to use time-varying landmask from model wetdry_elem 
                                   (False by default)
-            kwargs      : shoreline_file , allows adding a shoreline file that will be used alongside model 
+            kwargs      : shore_file , allows adding a shoreline file that will be used alongside model 
                           landmask to flag particles on land in _get_variables_interpolated_()
-                          Required in some cases to avoid particles going 
-                          on land
+                          Required in some cases to avoid particles going on land
         """
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
@@ -108,6 +107,63 @@ class Reader(BaseReader,UnstructuredReader):
             'wind_speed' : 'y_wind' }
             # diffusivity
             # viscosity
+
+            # elev = 1 !0: off; 1: on - elev. [m]
+            # pres = 0 !air pressure [Pa]
+            # airt = 0 !air temperature [C]
+            # shum = 0 !Specific humidity [-]
+            # srad = 0 !solar (shortwave) radiation [W/m/m]
+            # flsu = 0 !sensible flux (positive upward) [W/m/m] 
+            # fllu = 0 !latent heat flux (positive upward) [W/m/m]
+            # radu = 0 !upward longwave radiation (positive upward) [W/m/m]
+            # radd = 0 !downward longwave radiation (positive downward) [W/m/m]
+            # flux = 0 !total flux=-flsu-fllu-(radu-radd) [W/m/m]
+            # evap = 0 !evaporation rate [kg/m/m/s]
+            # prcp = 0 !precipitation rate [kg/m/m/s]
+            # bdrc = 0 !Bottom drag coefficient [-]
+            # wind = 1 !wind speed [m/s]
+            # wist = 0 !wind stress [m^2/s/s]
+            # dahv = 1 !depth-averaged vel. [m/s]
+            # vert = 0 !vertical velocity [m/s]
+            # temp = 1 !water temperature [C]
+            # salt = 1 !water salinity [PSU]
+            # conc = 0 !water density [kg/m^3]
+            # tdff = 0 !eddy diffusivity [m^2/s]
+            # vdff = 0 !eddy viscosity [m^2/s]
+            # kine = 0 !turbulent kinetic energy
+            # mixl = 0 !turbulent mixing length [m]
+            # zcor = 1 !z-coordinates [m]
+            # qnon = 0 !non-hydrostatic pressure
+            # hvel = 1 !horizontal vel. [m/s]
+            # !-----------------------------------------------------------------------
+            # ! Outputs from WWM (USE_WWM must be on in Makefile)
+            # !-----------------------------------------------------------------------
+            #   WWM_1  =  1 !sig. height (m)
+            #   WWM_2  =  1 !Mean average period (sec) - TM01
+            #   WWM_3  =  1 !Zero down crossing period for comparison with buoy (s) - TM02
+            #   WWM_4  =  1 !Average period of wave runup/overtopping - TM10
+            #   WWM_5  =  1 !Mean wave number (1/m)
+            #   WWM_6  =  1 !Mean wave length (m)
+            #   WWM_9  =  0 !Mean average energy transport direction (degr)
+            #   WWM_10 =  0 !Mean directional spreading (degr)
+            #   WWM_11 =  1 !Discrete peak period (sec) - Tp
+            #   WWM_12 =  0 !Continuous peak period based on higher order moments (sec)
+            #   WWM_13 =  0 !Peak phase vel. (m/s)
+            #   WWM_14 =  0 !Peak n-factor
+            #   WWM_15 =  0 !Peak group vel. (m/s)
+            #   WWM_16 =  0 !Peak wave number
+            #   WWM_17 =  0 !Peak wave length
+            #   WWM_18 =  1 !Peak (dominant) direction (degr)
+            #   WWM_19 =  1 !Peak directional spreading
+            #   WWM_20 =  0 !Discrete peak direction
+            #   WWM_21 =  1 !Orbital vel. (m/s)
+            #   WWM_22 =  0 !RMS Orbital vel. (m/s)
+            #   WWM_23 =  0 !Bottom excursion period (sec?)
+            #   WWM_24 =  0 !Bottom wave period (sec)
+            #   WWM_25 =  0 !Uresell number based on peak period
+            #   WWM_26 =  0 !Friction velocity (m/s?)
+            #   WWM_27  = 0 !Charnock coefficient
+            #   WWM_28  = 0 !Rougness length
 
         self.return_block = True
 

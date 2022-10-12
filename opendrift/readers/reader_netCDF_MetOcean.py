@@ -32,9 +32,19 @@ import sys
 # in OpenDrift, or when we want to read only a single variable from a file (e.g. depth).
 #
 # For reference, there is actually some option to select variables in model.add_reader(variables=['var1']), but this is not exactly doing what 
-# we need hereto_longitude_0_360
+# we need here to_longitude_0_360
 #
 # S.Weppe  
+# 
+# 
+# DEPRECIATED  10/2022/
+# It is preferred to use 
+# from opendrift.readers.reader_netCDF_CF_generic import Reader
+# and pass the standard_name_mapping (i.e. correspondance between MetOcean variable names, and Opendrift variable names)
+
+# reader_ec_winds = Reader("../uds_data/nowcast_swan_ec_nz-nz.nc",standard_name_mapping={'ugrd10m':'x_wind', 'vgrd10m':'y_wind'})
+# 
+# 
 
 # needed to be copied from basereader.py
 # Some valid (but extreme) ranges for checking that values are reasonable
