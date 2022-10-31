@@ -21,19 +21,18 @@ o = OceanDrift(loglevel=0)  # Set loglevel to 0 for debug information
 ###############################
 # Creating and adding reader using a native SCHISM netcdf output file
 # SCHISM reader
-# Landmask - (uses cartopy+rasterized GHSS shorelines)
-reader_landmask = reader_global_landmask.Reader(
-                    llcrnrlon=171.5, llcrnrlat=-43.5,
-                    urcrnrlon=177.0, urcrnrlat=-38.0)
+reader_landmask = reader_global_landmask.Reader()
 
 reader_custom = reader_landmask_custom.Reader(polygon_file = '/home/simon/Documents/GitHub/opendrift/examples/schism_marl_edit.shore')
 # reader_custom.plot() # check reader was correctly loaded, close figure to continue
 
 # NZTM proj4 string found at https://spatialreference.org/ref/epsg/nzgd2000-new-zealand-transverse-mercator-2000/
 proj4str_nztm = '+proj=tmerc +lat_0=0 +lon_0=173 +k=0.9996 +x_0=1600000 +y_0=10000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'
-schism_native = reader_schism_native.Reader(filename = 'https://thredds.met.no/thredds/dodsC/metusers/knutfd/thredds/netcdf_unstructured_samples/schism_marl20080101_00z_3D.nc', proj4 = proj4str_nztm, use_3d = True)
-
-# schism_native.plot_mesh(variable = 'sea_floor_depth_below_sea_level') # check reader was correctly loaded, close figure to continue
+schism_native = reader_schism_native.Reader(
+	filename = 'https://thredds.met.no/thredds/dodsC/metusers/knutfd/thredds/netcdf_unstructured_samples/schism_marl20080101_00z_3D.nc',
+	proj4 = proj4str_nztm,
+	use_3d = True)
+# schism_native.plot_mesh(variable = ['sea_floor_depth_below_sea_level']) # check reader was correctly loaded
 
 o.add_reader([reader_custom,schism_native])
 o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
@@ -51,8 +50,8 @@ o.seed_elements(lon=174.2940, lat=-41.0888, radius=20, number=100,
 o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 #%%
 # Running model
-o.run(time_step=900, 
-	  end_time = schism_native.start_time+timedelta(days=1.0))
+o.run(time_step=900,
+	  end_time = schism_native.start_time+timedelta(days=0.1))
 	  # outfile='schism_native_output.nc')
 # Print and plot results
 print(o)

@@ -33,6 +33,7 @@ from opendrift.readers import reader_lazy
 from opendrift.readers import reader_from_url
 from opendrift.models.pelagicegg import PelagicEggDrift
 from opendrift.readers import reader_current_from_track
+from opendrift.errors import OutsideSpatialCoverageError
 
 
 o = OceanDrift(loglevel=20)
@@ -51,8 +52,7 @@ class TestReaders(unittest.TestCase):
 
     def test_adding_readers(self):
         o = OceanDrift()
-        landmask = reader_global_landmask.Reader(
-            extent=[-1.5, 7, 59, 64])
+        landmask = reader_global_landmask.Reader()
         r = reader_ROMS_native.Reader(o.test_data_folder() +
             '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
         o.add_reader([r, landmask])
@@ -295,7 +295,7 @@ class TestReaders(unittest.TestCase):
         # Element outside reader domain
         self.assertEqual(len(r.covers_positions(5, 80)[0]), 0)
         x, y = r.lonlat2xy(5, 80)
-        self.assertRaises(ValueError, r.check_arguments,
+        self.assertRaises(OutsideSpatialCoverageError, r.check_arguments,
                           'y_sea_water_velocity', r.start_time, x, y, 0)
         # Element inside reader domain
         self.assertEqual(len(r.covers_positions(5, 60)[0]), 1)

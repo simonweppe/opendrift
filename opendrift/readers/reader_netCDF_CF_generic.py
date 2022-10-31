@@ -114,8 +114,7 @@ class Reader(StructuredReader, BaseReader):
 
     """
 
-    def __init__(self, filename=None, name=None, proj4=None, standard_name_mapping={}):
-
+    def __init__(self, filename=None, name=None, proj4=None, standard_name_mapping={}, ensemble_member=None):
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
 
@@ -132,10 +131,17 @@ class Reader(StructuredReader, BaseReader):
                 logger.info('Opening files with MFDataset')
                 self.Dataset = xr.open_mfdataset(filename, data_vars='minimal', coords='minimal',
                                                  chunks={'time': 1}, decode_times=False)
+            elif ensemble_member is not None:
+                self.Dataset = xr.open_dataset(filename, decode_times=False).isel(ensemble_member=ensemble_member)
             else:
                 self.Dataset = xr.open_dataset(filename, decode_times=False)
         except Exception as e:
             raise ValueError(e)
+
+        # NB: check below might not be waterproof
+        if 'ocean_time' in self.Dataset.dims and 'eta_u' in self.Dataset.dims and \
+                'eta_rho' in self.Dataset.dims:
+            raise ValueError('This seems to be a ROMS native file, should use ROMS native reader instead')
 
         logger.debug('Finding coordinate variables.')
         if proj4 is not None:  # If user has provided a projection apriori
@@ -178,8 +184,8 @@ class Reader(StructuredReader, BaseReader):
                     long_name.lower() == 'latitude' or \
                     var_name.lower() in ['latitude', 'lat']:
                 lat_var_name = var_name
-            if axis == 'X' or \
-                    standard_name == 'projection_x_coordinate':
+            if (axis == 'X' or standard_name == 'projection_x_coordinate') \
+                    and var.ndim == 1:
                 self.xname = var_name
                 # Fix for units; should ideally use udunits package
                 if units == 'km':
@@ -188,8 +194,8 @@ class Reader(StructuredReader, BaseReader):
                     self.unitfactor = 100000
                 var_data = var.values
                 x = var_data*self.unitfactor
-            if axis == 'Y' or \
-                    standard_name == 'projection_y_coordinate':
+            if (axis == 'Y' or standard_name == 'projection_y_coordinate') \
+                    and var.ndim == 1:
                 self.yname = var_name
                 # Fix for units; should ideally use udunits package
                 if units == 'km':
@@ -231,10 +237,11 @@ class Reader(StructuredReader, BaseReader):
                 else:
                     self.time_step = None
             if standard_name == 'realization':
-                var_data = var.values
-                self.realizations = var_data
-                logger.debug('%i ensemble members available'
-                              % len(self.realizations))
+                if ensemble_member == None:
+                    var_data = var.values
+                    self.realizations = var_data
+                    logger.debug('%i ensemble members available'
+                                % len(self.realizations))
 
         # Temporary workaround for Barents EPS model
         if self.realizations is None and 'ensemble_member' in self.Dataset.dims:
