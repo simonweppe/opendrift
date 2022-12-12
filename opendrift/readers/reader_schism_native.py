@@ -375,7 +375,7 @@ class Reader(BaseReader,UnstructuredReader):
                 elif var_name == 'dahv' and not self.use_3d: # then use depth-averaged data
                     self.variable_mapping['x_sea_water_velocity'] = str(var_name)
                     self.variable_mapping['y_sea_water_velocity'] = str(var_name)
-                elif var_name == 'wind_speed' and not self.use_3d: # wind speed vectors
+                elif var_name == 'wind_speed' : # wind speed vectors
                     self.variable_mapping['x_wind'] = str(var_name)
                     self.variable_mapping['y_wind'] = str(var_name)                  
                 else: # standard mapping                                    
@@ -471,7 +471,7 @@ class Reader(BaseReader,UnstructuredReader):
                 else:
                     raise ValueError('Wrong dimension of %s: %i' %
                                      (self.variable_mapping[par], var.ndim))
-            elif par in ['x_sea_water_velocity','y_sea_water_velocity','x_wind','y_wind'] :               
+            elif par in ['x_sea_water_velocity','y_sea_water_velocity','x_wind','y_wind'] :
                 # requested variables are vectors : current or wind velocities
                 # In SCHISM netcdf files, both [u,v] components are saved 
                 # as two different dimensions of the same variable.
@@ -942,7 +942,7 @@ class Reader(BaseReader,UnstructuredReader):
             logger.debug('Setting [x_sea_water_velocity,y_sea_water_velocity] to zero at dry points')
             env['x_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
             env['y_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
-
+        
         return env, env_profiles
 
     def covers_positions_xy(self, x, y, z=0):

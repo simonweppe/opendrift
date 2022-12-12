@@ -1,4 +1,4 @@
-name: opendrift_simon
+name: opendrift_simon_new
 channels:
   - opendrift
   - conda-forge
@@ -31,9 +31,6 @@ dependencies:
   - utm
   - roaring-landmask>=0.7
   - pip
-  - xarray
-  - dask
-  - toolz 
   - pip:
     - motuclient
     - pytest-sphinx
