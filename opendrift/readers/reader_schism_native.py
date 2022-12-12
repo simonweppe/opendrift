@@ -76,6 +76,7 @@ class Reader(BaseReader,UnstructuredReader):
             kwargs      : shore_file , allows adding a shoreline file that will be used alongside model 
                           landmask to flag particles on land in _get_variables_interpolated_()
                           Required in some cases to avoid particles going on land
+                          Note this file should be one or several closed polygon(s) reprensenting land area
         """
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
@@ -932,7 +933,7 @@ class Reader(BaseReader,UnstructuredReader):
         if 'land_binary_mask' in env.keys() and self.use_model_landmask and hasattr(self,'shore_file'):
             logger.debug('Updating land_binary_mask using shoreline landmask <%s> ' % self.shore_file)
             lon_tmp,lat_tmp = self.xy2lonlat(reader_x,reader_y)
-            on_shore_landmask = shapely.vectorized.contains(self.shore_landmask, lon_tmp, lat_tmp)
+            on_shore_landmask = shapely.vectorized.contains(self.shore_landmask, lon_tmp, lat_tmp) #checks if particle(s) are in land polys
             # update the 'land_binary_mask' accounting for shoreline landmask
             env['land_binary_mask'] = np.maximum(env['land_binary_mask'],on_shore_landmask.astype(float))
 
@@ -1005,9 +1006,6 @@ class Reader(BaseReader,UnstructuredReader):
         log_fac = ( np.log(part_z_above_seabed / self.z0) ) / ( np.log(np.abs(total_depth)/self.z0)-1 ) # total_depth must be positive, hence the abs()
         log_fac[np.where(part_z_above_seabed<=0)] = 1.0 # do not change velocity value
         return log_fac
-
-        shore = np.loadtxt(
-            polygon_file)  # nan-delimited closed polygons for land and islands
     
     def load_shoreline_landmask(self):
         # load shoreline polygon is added by user,used for additional on-land checks
@@ -1035,6 +1033,8 @@ class Reader(BaseReader,UnstructuredReader):
                 asPolygon(shore[id_nans[cnt] + 1:id_nans[cnt + 1] - 1, :]))
         # We can pass multiple Polygon -objects into our MultiPolygon as a list
         landmask = MultiPolygon(poly)
+        # check plot
+        # import matplotlib.pyplot as plt;plt.plot(landmask[0].exterior.xy[0],landmask[0].exterior.xy[1])
         landmask = shapely.prepared.prep(landmask)
         # self.shore_landmask = landmask
         return landmask
