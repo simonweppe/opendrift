@@ -258,6 +258,9 @@ class Reader(BaseReader,UnstructuredReader):
             if standard_name == 'longitude' or \
                     long_name == 'longitude' or \
                     var_name == 'longitude' or \
+                    standard_name == 'Longitude' or \
+                    long_name == 'Longitude' or \
+                    var_name == 'Longitude' or \
                     axis == 'X' or \
                     CoordinateAxisType == 'Lon' or \
                     standard_name == 'projection_x_coordinate':
@@ -278,6 +281,9 @@ class Reader(BaseReader,UnstructuredReader):
             if standard_name == 'latitude' or \
                     long_name == 'latitude' or \
                     var_name == 'latitude' or \
+               standard_name == 'Latitude' or \
+                    long_name == 'Latitude' or \
+                    var_name == 'Latitude' or \
                     axis == 'Y' or \
                     CoordinateAxisType == 'Lat' or \
                     standard_name == 'projection_y_coordinate':
@@ -330,11 +336,15 @@ class Reader(BaseReader,UnstructuredReader):
         if not (self.x>360.).any() and self.use_3d :
             logger.debug('Native (x,y) coordinates are lon/lat - cannot use 3D data, setting use_3d = False')
             self.use_3d = False
-            import pdb;pdb.set_trace()
             # the 3D interpolation currently doesnt work if the x,y coordinates in native netcdf files
-            # are not cartesian but geopgraphic. If that is the case, when doing 3D interpolation and tree search, 
+            # are not cartesian but geographic. If that is the case, when doing 3D interpolation and tree search, 
             # the vertical distance unit is meter, while the horizontal distance unit is degrees, which will return
             # erroneous "closest" nodes in ReaderBlockUnstruct,interpolate()
+            proj_wgs84 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'
+            transformer = pyproj.Transformer.from_proj(proj_from = proj_wgs84, proj_to = self.proj4)
+            x2, y2 = transformer.transform(self.x, self.y)
+            self.x = x2.copy()
+            self.y = y2.copy()
 
         # Run constructor of parent Reader class
         super(Reader, self).__init__()
