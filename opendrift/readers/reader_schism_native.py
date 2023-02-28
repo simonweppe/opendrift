@@ -66,11 +66,19 @@ class Reader(BaseReader,UnstructuredReader):
 
         Args:
             filename    :   name of SCHISM netcdf file (can have wildcards)
+
             name        :   name of reader - optional, taken as filename if not input
                             o.readers['name']
+
             proj4       :   proj4 string defining spatial reference system. 
                             find string here : https://spatialreference.org/ref/epsg/
+                            ** note ***
+                            if the (x,y) in model output files are in wgs84, the user must specify 
+                            a cartesian coordinate system that will be used to convert the geographic  
+                            coords into cartesian for internal use
+
             use_3d      :   switch to use 3d flows (if available)
+            
             use_model_landmask  : switch to use time-varying landmask from model wetdry_elem 
                                   (False by default)
             kwargs      : shore_file , allows adding a shoreline file that will be used alongside model 
