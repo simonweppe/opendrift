@@ -342,13 +342,16 @@ class Reader(BaseReader,UnstructuredReader):
         self.y = y
 
         if not (self.x>360.).any() and self.use_3d :
-            logger.debug('Native (x,y) coordinates are lon/lat - cannot use 3D data, setting use_3d = False')
-            self.use_3d = False
-            # the 3D interpolation currently doesnt work if the x,y coordinates in native netcdf files
-            # are not cartesian but geographic. If that is the case, when doing 3D interpolation and tree search, 
+            logger.debug('Native (x,y) coordinates in SCHISM outputs are lon/lat (WGS84)')
+            logger.debug('Converting to user-defined proj4 defined when initialising reader : %s' % self.proj4)
+            # The 3D interpolation doesnt work directly if the x,y coordinates in native netcdf files
+            # are not cartesian but geographic. In that case, when doing 3D interpolation and tree search, 
             # the vertical distance unit is meter, while the horizontal distance unit is degrees, which will return
             # erroneous "closest" nodes in ReaderBlockUnstruct,interpolate()
-            proj_wgs84 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'
+            # self.use_3d = False # force use of 2D for which the nearest node method will work
+            
+            # convert lon/lat to to user-defined cartesian coordinate system
+            proj_wgs84 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' # proj4 string for WGS84
             transformer = pyproj.Transformer.from_proj(proj_from = proj_wgs84, proj_to = self.proj4)
             x2, y2 = transformer.transform(self.x, self.y)
             self.x = x2.copy()
