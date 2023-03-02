@@ -1,3 +1,9 @@
+##########################################################################
+# TEMPORARY VERSION TO READ SCHISM FILES MODIFIED BY WRAPPER
+# 
+# Look for #CHANGED for modifications
+##########################################################################
+# 
 # This file is part of OpenDrift.
 #
 # OpenDrift is free software: you can redistribute it and/or modify
@@ -111,7 +117,7 @@ class Reader(BaseReader,UnstructuredReader):
             'zcor' : 'vertical_levels', # time-varying vertical coordinates
             'sigma': 'ocean_s_coordinate',
             'vertical_velocity' : 'upward_sea_water_velocity',
-            'wetdry_elem': 'land_binary_mask',
+            'wetdry_elem': 'land_binary_mask', 
             'wind_speed' : 'x_wind',
             'wind_speed' : 'y_wind' }
             # diffusivity
@@ -350,13 +356,19 @@ class Reader(BaseReader,UnstructuredReader):
             # erroneous "closest" nodes in ReaderBlockUnstruct,interpolate()
             # self.use_3d = False # force use of 2D for which the nearest node method will work
             
-            # convert lon/lat to user-defined cartesian coordinate system
+            # convert lon/lat to to user-defined cartesian coordinate system
             proj_wgs84 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' # proj4 string for WGS84
             transformer = pyproj.Transformer.from_proj(proj_from = proj_wgs84, proj_to = self.proj4)
             x2, y2 = transformer.transform(self.x, self.y)
             self.x = x2.copy()
             self.y = y2.copy()
 
+        # CHANGED#######################################################################################################
+        # add depth variable
+        self.dataset['depth'] = -1.*self.dataset['zcor'][:,:,0] # first level of zcor is total depth = static depth+eta ()
+        ################################################################################################################
+
+        
         # Run constructor of parent Reader class
         super(Reader, self).__init__()
 
@@ -403,8 +415,11 @@ class Reader(BaseReader,UnstructuredReader):
                 else: # standard mapping                                    
                     self.variable_mapping[schism_mapping[var_name]] = \
                         str(var_name) 
-                   
+
         self.variables = list(self.variable_mapping.keys())
+        # CHANGED #######################
+        # here we have to trick it so it thinks the file have land_binary_mask, so this will be requested when calling get_environment()
+        self.variables.append('land_binary_mask') 
 
         self.xmin = self.x.min()
         self.xmax = self.x.max()
@@ -517,17 +532,22 @@ class Reader(BaseReader,UnstructuredReader):
                     data,variables = self.convert_3d_to_array(indxTime,data,variables)
 
             elif (par in ['land_binary_mask']) & (self.use_model_landmask) :
-                dry_elem = self.dataset.variables[self.variable_mapping[par]][indxTime,:] # dry_elem =1 if dry, 0 if wet, for each element face
-                # find indices of nodes making up the dry elements
-                if len(self.dataset['SCHISM_hgrid_face_nodes'].shape) == 3:
-                    # when using open_mfdataset, the variable is expanded along time dimension, hence use of indxTime shape = (nb_time,nb_elem,4)
-                    node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][indxTime,dry_elem.values.astype('bool'),:]) # id of nodes making up each element 
-                else:
-                    node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][dry_elem.values.astype('bool'),:]) # id of nodes making up each elements shape = (nb_elem,4)
-                # remove nans, and keep unique indices
-                node_id = np.unique(node_id[~np.isnan(node_id)]) - 1 # add <-1> to convert node index rather than absolute number
+                # import pdb;pdb.set_trace()
+                # CHANGED##################################3
+                # # here we dont actually have any info on a time-varying landmask, unlike native files
+                # dry_elem = self.dataset.variables[self.variable_mapping[par]][indxTime,:] # dry_elem =1 if dry, 0 if wet, for each element face
+                # # find indices of nodes making up the dry elements
+                # if len(self.dataset['SCHISM_hgrid_face_nodes'].shape) == 3:
+                #     # when using open_mfdataset, the variable is expanded along time dimension, hence use of indxTime shape = (nb_time,nb_elem,4)
+                #     node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][indxTime,dry_elem.values.astype('bool'),:]) # id of nodes making up each element 
+                # else:
+                #     node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][dry_elem.values.astype('bool'),:]) # id of nodes making up each elements shape = (nb_elem,4)
+                # # remove nans, and keep unique indices
+                # node_id = np.unique(node_id[~np.isnan(node_id)]) - 1 # add <-1> to convert node index rather than absolute number
+                
+                # we just initialize to all zero...checks on shoreline poly crossing will be done later down the track
                 data = 0.0*self.x # build array, same size as node
-                data[node_id.astype(int)] = 1.0 # set dry nodes to one to be used as 'land_binary_mask'
+                # data[node_id.astype(int)] = 1.0 # set dry nodes to one to be used as 'land_binary_mask'
 
             variables[par] = data # save all data slice to dictionary with key 'par'
             # Store coordinates of returned points
@@ -572,6 +592,7 @@ class Reader(BaseReader,UnstructuredReader):
             data = np.asarray(data)
             # vertical_levels.mask = np.isnan(vertical_levels.data) # masked using nan's when using xarray
         except:
+            # import pdb;pdb.set_trace()
             logger.debug('no vertical level information present in file ''zcor'' ... stopping')
             raise ValueError('variable ''zcor'' must be present in netcdf file to be able to use 3D currents')
         # flatten 3D data 
@@ -949,7 +970,7 @@ class Reader(BaseReader,UnstructuredReader):
         # not using for now
         if False :
             self.apply_logarithmic_current_profile(env,z)
-         
+
         # additional on-land checks using shore_landmask (if present)
         if 'land_binary_mask' in env.keys() and self.use_model_landmask and hasattr(self,'shore_file'):
             logger.debug('Updating land_binary_mask using shoreline landmask <%s> ' % self.shore_file)
@@ -965,6 +986,14 @@ class Reader(BaseReader,UnstructuredReader):
             env['x_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
             env['y_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
         
+        # CHANGED >> adding special case when there are not wet_dryelem infos, but we still want to use the shore_file as landmask
+        if 'land_binary_mask' not in env.keys() and self.use_model_landmask and hasattr(self,'shore_file'):
+            logger.debug('Using shoreline landmask only : <%s> ' % self.shore_file)
+            lon_tmp,lat_tmp = self.xy2lonlat(reader_x,reader_y)
+            on_shore_landmask = shapely.vectorized.contains(self.shore_landmask, lon_tmp, lat_tmp) #checks if particle(s) are in land polys
+            # update the 'land_binary_mask' accounting for shoreline landmask
+            # env['land_binary_mask'] = np.maximum(env['land_binary_mask'],on_shore_landmask.astype(float))
+            env['land_binary_mask'] = on_shore_landmask.astype(float)
         return env, env_profiles
 
     def covers_positions_xy(self, x, y, z=0):
