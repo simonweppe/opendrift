@@ -42,7 +42,7 @@ import sys
 # from opendrift.readers.reader_netCDF_CF_generic import Reader
 # and pass the standard_name_mapping (i.e. correspondance between MetOcean variable names, and Opendrift variable names)
 
-# reader_ec_winds = Reader("../uds_data/nowcast_swan_ec_nz-nz.nc",standard_name_mapping={'ugrd10m':'x_wind', 'vgrd10m':'y_wind'})
+# reader_ec_winds = reader_netCDF_CF_generic.Reader("../uds_data/nowcast_swan_ec_nz-nz.nc",standard_name_mapping={'ugrd10m':'x_wind', 'vgrd10m':'y_wind'})
 # 
 # 
 
@@ -66,6 +66,12 @@ vector_pairs_xy = [
 class Reader(BaseReader):
 
     def __init__(self, filename=None, name=None, variables_to_use = None, **kwargs):
+        
+        print(' DEPRECIATED  10/2022/')
+        print('It is preferred to use :')
+        print('from opendrift.readers.reader_netCDF_CF_generic import Reader')
+        print('and pass the standard_name_mapping (i.e. correspondance between MetOcean variable names, and Opendrift variable names') 
+        print('reader_ec_winds = reader_netCDF_CF_generic.Reader("../uds_data/nowcast_swan_ec_nz-nz.nc",standard_name_mapping={''ugrd10m'':''x_wind'', ''vgrd10m'':''y_wind''})')
 
         self.use_log_profile = False # No extrapolation using logarithmic profile by default
         self.reader_water_depth = None # optional "water depth reader" passed to reader
@@ -110,6 +116,7 @@ class Reader(BaseReader):
             axis = ''
             units = ''
             CoordinateAxisType = ''
+            import pdb;pdb.set_trace()
             if not hasattr(self, 'proj4'):
                 for att in attributes:
                     if 'proj4' in att:
