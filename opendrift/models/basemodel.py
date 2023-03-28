@@ -2007,10 +2007,10 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
             'radius': [float(radius[0]), float(radius[-1])],
             'number': number
             }
-#         # added s.weppe
-#         for key in properties.keys():
-#             if isinstance(properties[key],np.ndarray):
-#                 properties[key] = np.array2string(properties[key])
+        # added s.weppe
+        for key in properties.keys():
+            if isinstance(properties[key],np.ndarray):
+                properties[key] = np.array2string(properties[key])
 
 # # =======
 #         default_seed = {
