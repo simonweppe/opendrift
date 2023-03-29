@@ -795,9 +795,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                      None)
             self.environment.land_binary_mask = en.land_binary_mask
 
-        if i == 'stranding':  # Deactivate elements on land
-            self.deactivate_elements(self.environment.land_binary_mask == 1,
-                                     reason='stranded')
+        if i == 'stranding':  # Deactivate elements on land, but not in air
+            self.deactivate_elements((self.environment.land_binary_mask == 1) &
+                                     (self.elements.z <= 0), reason='stranded')
         elif i == 'previous':  # Go back to previous position (in water)
             if self.newly_seeded_IDs is not None:
                 self.deactivate_elements(
@@ -1342,34 +1342,33 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                         -2, missingbottom]
 
                 # Detect elements with missing data, for present reader group
-                if hasattr(env_tmp[variable_group[0]], 'mask'):
-                    try:
-                        del combined_mask
-                    except:
-                        pass
-                    for var in variable_group:
-                        tmp_var = np.ma.masked_invalid(env_tmp[var])
-                        # Changed 13 Oct 2016, but uncertain of effect
-                        # TODO: to be checked
-                        #tmp_var = env_tmp[var]
-                        if 'combined_mask' not in locals():
-                            combined_mask = np.ma.getmask(tmp_var)
-                        else:
-                            combined_mask = \
-                                np.ma.mask_or(combined_mask,
-                                              np.ma.getmask(tmp_var),
-                                              shrink=False)
-                    try:
-                        if len(missing_indices) != len(combined_mask):
-                            # TODO: mask mismatch due to 2 added points
-                            raise ValueError('Mismatch of masks')
-                        missing_indices = missing_indices[combined_mask]
-                    except Exception as ex:  # Not sure what is happening here
-                        logger.info(
-                            'Problems setting mask on missing_indices!')
-                        logger.exception(ex)
-                else:
-                    missing_indices = []  # temporary workaround
+                if not hasattr(env_tmp[variable_group[0]], 'mask'):
+                    env_tmp[variable_group[0]] = np.ma.masked_invalid(env_tmp[variable_group[0]])
+                try:
+                    del combined_mask
+                except:
+                    pass
+                for var in variable_group:
+                    tmp_var = np.ma.masked_invalid(env_tmp[var])
+                    # Changed 13 Oct 2016, but uncertain of effect
+                    # TODO: to be checked
+                    #tmp_var = env_tmp[var]
+                    if 'combined_mask' not in locals():
+                        combined_mask = np.ma.getmask(tmp_var)
+                    else:
+                        combined_mask = \
+                            np.ma.mask_or(combined_mask,
+                                          np.ma.getmask(tmp_var),
+                                          shrink=False)
+                try:
+                    if len(missing_indices) != len(combined_mask):
+                        # TODO: mask mismatch due to 2 added points
+                        raise ValueError('Mismatch of masks')
+                    missing_indices = missing_indices[combined_mask]
+                except Exception as ex:  # Not sure what is happening here
+                    logger.info(
+                        'Problems setting mask on missing_indices!')
+                    logger.exception(ex)
                 if (type(missing_indices)
                         == np.int64) or (type(missing_indices) == np.int32):
                     missing_indices = []
@@ -2006,24 +2005,12 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                                      str(timespan[1])],
             'radius': [float(radius[0]), float(radius[-1])],
             'number': number
-            }
-        # added s.weppe
+        }
+        # convert array to string in case of array input to seed cone
         for key in properties.keys():
             if isinstance(properties[key],np.ndarray):
                 properties[key] = np.array2string(properties[key])
-
-# # =======
-#         default_seed = {
-#             **default_seed,
-#             **kwargs
-#         }  # Overwrite with explicitly provided values
-#         properties = {
-#             **default_seed, 'time': [str(timespan[0]),
-#                                      str(timespan[1])],
-#             'radius': [float(radius[0]), float(radius[-1])],
-#             'number': number
-#         }
-# # >>>>>>> upstream/master
+                
         f = geojson.Feature(geometry=geo, properties=properties)
         self.seed_geojson.append(f)
 
@@ -3426,9 +3413,13 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
 
         markersizebymass = False
         if isinstance(markersize, str):
-            if markersize == 'mass':
+            if markersize.startswith('mass'):
                 markersizebymass = True
-                markersize = 20
+                if markersize[len('mass'):] == '':
+                    # default initial size if not specified
+                    markersize = 100
+                else:
+                    markersize = int(markersize[len('mass'):])
 
         start_time = datetime.now()
         if cmap is None:
@@ -3528,11 +3519,19 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                           y_deactive[index_of_last_deactivated < i]])
 
                 if markersizebymass:
-                    points.set_sizes(
-                        100 * (self.history['mass'][:, i] /
-                               (self.history['mass'][:, i] +
-                                self.history['mass_degraded'][:, i] +
-                                self.history['mass_volatilized'][:, i])))
+                    if 'chemicaldrift' in self.__module__:
+                        points.set_sizes(
+                            markersize * (self.history['mass'][:, i] /
+                                          (self.history['mass'][:, i] +
+                                           self.history['mass_degraded'][:, i] +
+                                           self.history['mass_volatilized'][:, i])))
+                    elif 'openoil' in self.__module__:
+                        points.set_sizes(
+                            markersize * (self.history['mass_oil'][:, i] /
+                                          (self.history['mass_oil'][:, i] +
+                                           self.history['mass_biodegraded'][:, i] +
+                                           self.history['mass_dispersed'][:, i] +
+                                           self.history['mass_evaporated'][:, i])))
 
                 if color is not False:  # Update colors
                     points.set_array(colorarray[:, i])
@@ -5271,8 +5270,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable):
                 outStr += '  %s (%s)\n' % (dr, reason)
         if hasattr(self, 'time'):
             outStr += '\nTime:\n'
-            outStr += '\tStart: %s\n' % (self.start_time)
-            outStr += '\tPresent: %s\n' % (self.time)
+            outStr += '\tStart: %s UTC\n' % (self.start_time)
+            outStr += '\tPresent: %s UTC\n' % (self.time)
             if hasattr(self, 'time_step'):
                 outStr += '\tCalculation steps: %i * %s - total time: %s\n' % (
                     self.steps_calculation, self.time_step,
