@@ -1068,7 +1068,7 @@ class Reader(BaseReader,UnstructuredReader):
         from matplotlib.patches import Polygon
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
-        from opendrift_landmask_data import Landmask
+        # from opendrift_landmask_data import Landmask
         import matplotlib.tri as mtri
         fig = plt.figure()
 
@@ -1128,7 +1128,7 @@ class Reader(BaseReader,UnstructuredReader):
             x0 = (self.xmin + self.xmax) / 2
             y0 = (self.ymin + self.ymax) / 2
             lon0, lat0 = self.xy2lonlat(x0, y0)
-            sp = ccrs.Stereographic(central_longitude=lon0, central_latitude=lat0)
+            sp = ccrs.Stereographic(central_longitude=lon0[0], central_latitude=lat0[0])
             ax = fig.add_subplot(1, 1, 1, projection=sp)
             corners_stere = sp.transform_points(ccrs.PlateCarree(), np.array(corners[0]), np.array(corners[1]))
         else:
@@ -1194,6 +1194,7 @@ class Reader(BaseReader,UnstructuredReader):
             plt.title(title)
         plt.xlabel('Time coverage: %s to %s' %
                    (self.start_time, self.end_time))
+        
 
         if variable is not None:
             if len(variable) == 1: # simple scalar variable
@@ -1237,6 +1238,8 @@ class Reader(BaseReader,UnstructuredReader):
             mng.toolbar.zoom()
         except:
             pass
+        
+        import pdb;pdb.set_trace()
 
         if filename is not None:
             plt.savefig(filename)
@@ -1244,7 +1247,7 @@ class Reader(BaseReader,UnstructuredReader):
         else:
             plt.ion()
             plt.show()
-            # import pdb;pdb.set_trace()
+            import pdb;pdb.set_trace()
             # 
             # variable = ['sea_floor_depth_below_sea_level','x_sea_water_velocity','y_sea_water_velocity']
             # data = self.get_variables(variable, self.start_time,rx, ry, block=True) # where variable = ['x_sea_water_velocity','y_sea_water_velocity']
@@ -1440,11 +1443,11 @@ class ReaderBlockUnstruct():
                 DMIN=1.e-10
                 if data.shape[0] == self.x.shape[0] : # 2D data- full slice
                     #2D KDtree
-                    dist,i=self.block_KDtree.query(np.vstack((x,y)).T,nb_closest_nodes, n_jobs=-1) #quick nearest-neighbor lookup
+                    dist,i=self.block_KDtree.query(np.vstack((x,y)).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
                     # dist = distance to nodes / i = index of nodes
                 elif hasattr(self,'z_3d') and (data.shape[0] == self.x_3d.shape[0]) : #3D data
                     #3D KDtree
-                    dist,i=self.block_KDtree_3d.query(np.vstack((x,y,z)).T,nb_closest_nodes, n_jobs=-1) #quick nearest-neighbor lookup
+                    dist,i=self.block_KDtree_3d.query(np.vstack((x,y,z)).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
                     # dist = distance to nodes / i = index of nodes
                     ##############################
                     # PLOT CHECKS
