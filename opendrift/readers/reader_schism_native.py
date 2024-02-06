@@ -1415,7 +1415,7 @@ class ReaderBlockUnstruct():
                 # if closest node is dry then we assume particle is on land
                 nb_closest_nodes = 1
                 #2D KDtree
-                dist,i=self.block_KDtree.query(np.vstack((x,y)).T,nb_closest_nodes, n_jobs=-1) #quick nearest-neighbor lookup
+                dist,i=self.block_KDtree.query(np.vstack((x,y)).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
                 data_interpolated = data[i] # we keep closest value
 
             # ensemble data
