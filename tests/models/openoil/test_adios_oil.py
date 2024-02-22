@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta
 import pytest
 import numpy as np
 from opendrift.models.openoil import adios
+from opendrift.models.openoil import OpenOil
 
 
 @pytest.fixture
@@ -10,6 +12,24 @@ def aasgard():
     assert f.name == 'AASGARD A 2003'
     return f
 
+def test_max_water_fraction():
+    # Check that max water fraction is saturated to max values from Sintef model
+    # Max water_fraction 0.317 for SST=0 from Sintef, for SST=10,20 from NOAA
+    for sst,expected_fraction in zip([0, 10, 20], [0.317, 0.443, 0.443]):
+        o = OpenOil(loglevel=50)
+        o.set_config('environment:constant',
+            {
+            'x_wind': 10,
+            'y_wind': 0,
+            'x_sea_water_velocity': 0,
+            'y_sea_water_velocity': 0,
+            'sea_water_temperature': sst,
+            'land_binary_mask': 0
+            })
+        o.seed_elements(lon=3, lat=60, time=datetime.now(), number=100,
+                        oil_type='DUVA 2021')
+        o.run(duration=timedelta(hours=6))
+        assert np.isclose(o.elements.water_fraction.max(), expected_fraction, atol=.001)
 
 def test_open_aasgard(aasgard):
     print(aasgard)
@@ -60,4 +80,15 @@ def test_vapor_pressure(aasgard):
     # new_vp.sort()
 
     # np.testing.assert_array_almost_equal(old_vp, new_vp)
+
+def test_k0y_const():
+    o = OpenOil()
+    for oil in o.oiltypes:
+        print('testing oil:', oil)
+        oils = adios.oils(1, oil)
+        if len(oils) > 0:
+            f = oils[0].make_full()
+            if hasattr(f, 'gnome_oil'):
+                print(f.k0y)
+                assert f.k0y == 2.024e-06
 

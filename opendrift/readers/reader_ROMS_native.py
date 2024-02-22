@@ -28,8 +28,64 @@ from opendrift.readers.roppy import depth
 
 
 class Reader(BaseReader, StructuredReader):
+    """
+    A reader for ROMS Output files. It can take a single file, a file pattern, a URL or an xarray Dataset.
 
-    def __init__(self, filename=None, name=None, gridfile=None, standard_name_mapping={}):
+    Args:
+        :param filename: A single netCDF file, a pattern of files, or a xr.Dataset. The
+                         netCDF file can also be an URL to an OPeNDAP server.
+        :type filename: string, xr.Dataset (required).
+
+        :param name: Name of reader
+        :type name: string, optional
+
+        :param save_interpolator: Whether or not to save the interpolator that goes from lon/lat to x/y (calculated in structured.py)
+        :type save_interpolator: bool
+
+        :param interpolator_filename: If save_interpolator is True, user can input this string to control where interpolator is saved.
+        :type interpolator_filename: Path, str, optional
+
+    Example:
+
+    .. code::
+
+       from opendrift.readers.reader_ROMS_native import Reader
+       r = Reader("roms.nc")
+
+    Several files can be specified by using a pattern:
+
+    .. code::
+
+       from opendrift.readers.reader_ROMS_native import Reader
+       r = Reader("*.nc")
+
+    An OPeNDAP URL can be used:
+
+    .. code::
+
+       from opendrift.readers.reader_ROMS_native import Reader
+       r = Reader('https://thredds.met.no/thredds/dodsC/mepslatest/meps_lagged_6_h_latest_2_5km_latest.nc')
+
+    A xr.Dataset can be used:
+
+    .. code::
+
+        from opendrift.readers.reader_ROMS_native import Reader
+        ds = xr.open_dataset(filename, decode_times=False)
+        r = Reader(ds)
+    """
+
+    def __init__(self, filename=None, name=None, gridfile=None, standard_name_mapping={},
+                 save_interpolator=False, interpolator_filename=None):
+        
+        self._mask_rho = None
+        self._mask_u = None
+        self._mask_v = None
+        self.land_binary_mask = None
+        self.sea_floor_depth_below_sea_level = None
+        self.z_rho_tot = None
+        self.s2z_A = None
+        self.angle_xi_east = None
 
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
@@ -46,8 +102,8 @@ class Reader(BaseReader, StructuredReader):
             # 'v_northward' : 'y_sea_water_velocity',
             'u': 'x_sea_water_velocity',
             'v': 'y_sea_water_velocity',
-            'u_eastward': 'x_sea_water_velocity',
-            'v_northward': 'y_sea_water_velocity',
+            #'u_eastward': 'x_sea_water_velocity',  # these are wrognly rotated below
+            #'v_northward': 'y_sea_water_velocity',
             'w': 'upward_sea_water_velocity',
             'temp': 'sea_water_temperature',
             'salt': 'sea_water_salinity',
@@ -60,6 +116,12 @@ class Reader(BaseReader, StructuredReader):
             'AKs': 'ocean_vertical_diffusivity',
             'sustr': 'surface_downward_x_stress',
             'svstr': 'surface_downward_y_stress',
+            'tair': 'air_temperature',
+            'wspd': 'wind_speed',
+            'uwnd': 'x_wind',
+            'vwnd': 'y_wind',
+            'uwind': 'x_wind',
+            'vwind': 'y_wind',
             'Uwind': 'x_wind',
             'Vwind': 'y_wind'}
 
@@ -74,35 +136,42 @@ class Reader(BaseReader, StructuredReader):
             -6500, -7000, -7500, -8000])
 
         gls_param = ['gls_cmu0', 'gls_p', 'gls_m', 'gls_n']
+        
+        self.name = name or 'roms native'
 
-        filestr = str(filename)
-        if name is None:
-            self.name = filestr
+        if isinstance(filename, xr.Dataset):
+            self.Dataset = filename
         else:
-            self.name = name
 
-        try:
-            # Open file, check that everything is ok
-            logger.info('Opening dataset: ' + filestr)
-            if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
-                logger.info('Opening files with MFDataset')
-                def drop_non_essential_vars_pop(ds):
-                    dropvars = [v for v in ds.variables if v not in
-                                list(self.ROMS_variable_mapping.keys()) + gls_param +
-                                ['ocean_time', 's_rho', 'Cs_r', 'hc', 'angle', 'Vtransform']
-                                and v[0:3] not in ['lon', 'lat', 'mas']]
-                    logger.debug('Dropping variables: %s' % dropvars)
-                    ds = ds.drop_vars(dropvars)
-                    return ds
-                self.Dataset = xr.open_mfdataset(filename,
-                    chunks={'ocean_time': 1}, compat='override', decode_times=False,
-                    preprocess=drop_non_essential_vars_pop,
-                    data_vars='minimal', coords='minimal')
-            else:
-                logger.info('Opening file with Dataset')
-                self.Dataset = xr.open_dataset(filename, decode_times=False)
-        except Exception as e:
-            raise ValueError(e)
+            filestr = str(filename)
+
+            try:
+                # Open file, check that everything is ok
+                logger.info('Opening dataset: ' + filestr)
+                if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
+                    logger.info('Opening files with MFDataset')
+                    def drop_non_essential_vars_pop(ds):
+                        dropvars = [v for v in ds.variables if v not in
+                                    list(self.ROMS_variable_mapping.keys()) + gls_param +
+                                    ['ocean_time', 'time', 'bulk_time', 's_rho',
+                                     'Cs_r', 'hc', 'angle', 'Vtransform']
+                                    and v[0:3] not in ['lon', 'lat', 'mas']]
+                        logger.debug('Dropping variables: %s' % dropvars)
+                        ds = ds.drop_vars(dropvars)
+                        return ds
+                    self.Dataset = xr.open_mfdataset(filename,
+                        chunks={'ocean_time': 1}, compat='override', decode_times=False,
+                        preprocess=drop_non_essential_vars_pop,
+                        data_vars='minimal', coords='minimal')
+                else:
+                    logger.info('Opening file with Dataset')
+                    self.Dataset = xr.open_dataset(filename, decode_times=False)
+            except Exception as e:
+                raise ValueError(e)
+
+        # this is an opporunity to save interpolators to pickle to save sim time
+        self.save_interpolator = save_interpolator
+        self.interpolator_filename = interpolator_filename or f'{self.name}_interpolators'
 
         if gridfile is not None:  # Merging gridfile dataset with main dataset
             gf = xr.open_dataset(gridfile)
@@ -142,9 +211,12 @@ class Reader(BaseReader, StructuredReader):
                 self.hc = self.Dataset.variables['hc'][:]
             except:
                 self.hc = self.Dataset.variables['hc'].data  # scalar
+            else:
+                self.hc = None
 
             self.num_layers = len(self.sigma)
         else:
+            logger.warning("2D dataset, so deleting u and v from ROMS_variable_mapping")
             self.num_layers = 1
             self.ROMS_variable_mapping['ubar'] = 'x_sea_water_velocity'
             self.ROMS_variable_mapping['vbar'] = 'y_sea_water_velocity'
@@ -179,15 +251,21 @@ class Reader(BaseReader, StructuredReader):
             logger.info('Did not find complete set of GLS parameters')
 
         # Get time coverage
-        try:
-            ocean_time = self.Dataset.variables['ocean_time']
-        except:
-            ocean_time = self.Dataset.variables['time']
+        ocean_time = None
+        for tv in ['ocean_time', 'time', 'bulk_time']:
+            if tv in self.Dataset.variables:
+                ocean_time = self.Dataset.variables[tv]
+        if ocean_time is None:
+            raise ValueError('Time variable not found in ROMS file')
         time_units = ocean_time.attrs['units']
         if time_units == 'second':
             logger.info('Ocean time given as seconds relative to start '
                          'Setting artifical start time of 1 Jan 2000.')
             time_units = 'seconds since 2000-01-01 00:00:00'
+        if time_units == 'days':
+            logger.info('Ocean time given as days relative to start '
+                         'Setting artifical start time of 1 Jan 2000.')
+            time_units = 'days since 2000-01-01 00:00:00'
         self.times = num2date(ocean_time[:], time_units)
         self.start_time = self.times[0]
         self.end_time = self.times[-1]
@@ -195,8 +273,6 @@ class Reader(BaseReader, StructuredReader):
             self.time_step = self.times[1] - self.times[0]
         else:
             self.time_step = None
-
-        self.name = 'roms native'
 
         self.precalculate_s2z_coefficients = True
 
@@ -223,18 +299,80 @@ class Reader(BaseReader, StructuredReader):
         # Run constructor of parent Reader class
         super(Reader, self).__init__()
 
+    @property
+    def mask_rho(self):
+        """Mask for the rho-points.
+        
+        Uses wetdry_mask_rho (which should be 3D) if available, otherwise mask_rho (2D).
+        If this mask is 2D, read it in this one time and use going forward in simulation. If 3D,
+        will read in parts of the mask each loop.
+        """
+        if self._mask_rho is None:
+            if 'wetdry_mask_rho' in self.Dataset.data_vars:
+                self._mask_rho = self.Dataset.variables['wetdry_mask_rho']
+                logger.info("Using wetdry_mask_rho for mask_rho")
+            else:
+                # Read landmask for whole domain, for later re-use
+                self._mask_rho = self.Dataset.variables['mask_rho'][:]
+                # load in once if static mask
+                if self._mask_rho.chunks is not None:  # to see if dask array
+                    self._mask_rho = self._mask_rho.compute()
+                logger.info("Using mask_rho for mask_rho")
+        return self._mask_rho
+
+    @property
+    def mask_u(self):
+        """Mask for the u-points.
+        
+        Uses wetdry_mask_u (which should be 3D) if available, otherwise mask_u (2D).
+        If this mask is 2D, read it in this one time and use going forward in simulation. If 3D,
+        will read in parts of the mask each loop.
+        """
+        if self._mask_u is None:
+            if 'wetdry_mask_u' in self.Dataset.data_vars:
+                self._mask_u = self.Dataset.variables['wetdry_mask_u']
+                logger.info("Using wetdry_mask_u for mask_u")
+            else:
+                # Read landmask for whole domain, for later re-use
+                self._mask_u = self.Dataset.variables['mask_u'][:]
+                # load in once if static mask
+                if self._mask_u.chunks is not None:  # to see if dask array
+                    self._mask_u = self._mask_u.compute()
+                logger.info("Using mask_u for mask_u")
+        return self._mask_u
+
+    @property
+    def mask_v(self):
+        """Mask for the v-points.
+        
+        Uses wetdry_mask_v (which should be 3D) if available, otherwise mask_v (2D).
+        If this mask is 2D, read it in this one time and use going forward in simulation. If 3D,
+        will read in parts of the mask each loop.
+        """
+        if self._mask_v is None:
+            if 'wetdry_mask_v' in self.Dataset.data_vars:
+                self._mask_v = self.Dataset.variables['wetdry_mask_v']
+                logger.info("Using wetdry_mask_v for mask_v")
+            else:
+                # Read landmask for whole domain, for later re-use
+                self._mask_v = self.Dataset.variables['mask_v'][:]
+                # load in once if static mask
+                if self._mask_v.chunks is not None:  # to see if dask array
+                    self._mask_v = self._mask_v.compute()
+                logger.info("Using mask_v for mask_v")
+        return self._mask_v
+
     def get_variables(self, requested_variables, time=None,
                       x=None, y=None, z=None):
         start_time = datetime.now()
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
 
-        if 'land_binary_mask' in requested_variables and not hasattr(self, 'land_binary_mask'):
-            # Read landmask for whole domain, for later re-use
-            self.land_binary_mask = 1 - self.Dataset.variables['mask_rho'][:]
+        # land_binary_mask should be based on the rho grid
+        if 'land_binary_mask' in requested_variables and self.land_binary_mask is None:
+            self.land_binary_mask = 1 - self.mask_rho
 
-        if 'sea_floor_depth_below_sea_level' in requested_variables and not hasattr(
-                    self, 'sea_floor_depth_below_sea_level'):
+        if 'sea_floor_depth_below_sea_level' in requested_variables and self.sea_floor_depth_below_sea_level is None:
             self.sea_floor_depth_below_sea_level = self.Dataset.variables['h'][:]
 
         # If one vector component is requested, but not the other
@@ -256,7 +394,7 @@ class Reader(BaseReader, StructuredReader):
             z = np.atleast_1d(0)
 
         # Find horizontal indices corresponding to requested x and y
-        if hasattr(self, 'clipped'):
+        if self.clipped is not None:
             clipped = self.clipped
         else: clipped = 0
         indx = np.floor((x-self.xmin)/self.delta_x).astype(int) + clipped
@@ -275,18 +413,18 @@ class Reader(BaseReader, StructuredReader):
                             np.min([indy.max()+buffer, self.lon.shape[0]-1]))
 
         # Find depth levels covering all elements
-        if z.min() == 0 or not hasattr(self, 'hc'):
+        if z.min() == 0 or self.hc is None:
             indz = self.num_layers - 1  # surface layer
             variables['z'] = 0
 
         else:
             # Find the range of indices covering given z-values
-            if not hasattr(self, 'sea_floor_depth_below_sea_level'):
+            if self.sea_floor_depth_below_sea_level is None:
                 logger.debug('Reading sea floor depth...')
                 self.sea_floor_depth_below_sea_level = \
                     self.Dataset.variables['h'][:]
 
-            if not hasattr(self, 'z_rho_tot'):
+            if self.z_rho_tot is None:
                 Htot = self.sea_floor_depth_below_sea_level
                 self.z_rho_tot = depth.sdepth(Htot, self.hc, self.Cs_r,
                                               Vtransform=self.Vtransform)
@@ -317,16 +455,29 @@ class Reader(BaseReader, StructuredReader):
                              bisect_right(-np.array(self.zlevels),
                                           -z.min()) + self.verticalbuffer)
             variables['z'] = np.array(self.zlevels[zi1:zi2])
+        
+        # use these same indices for all mask subsetting since if one is
+        # 3D they all should be
+        if self.mask_rho.ndim == 2:
+            imask = (indy,indx)
+        elif self.mask_rho.ndim == 3:
+            imask = (indxTime,indy,indx)        
+            
+        def get_mask(mask_name, imask):
+            if mask_name in masks_for_loop:
+                mask = masks_for_loop[mask_name]
+            else:
+                mask = getattr(self, mask_name)[imask]
+            return mask, mask_name
 
-        #read_masks = {}  # To store maskes for various grids
-        mask_values = {}
+        masks_for_loop = {}  # To store maskes for various grids
         for par in requested_variables:
             varname = [name for name, cf in
                        self.ROMS_variable_mapping.items() if cf == par]
             var = self.Dataset.variables[varname[0]]
 
             if par == 'land_binary_mask':
-               variables[par] = self.land_binary_mask[indy, indx]
+                variables[par] = self.land_binary_mask[imask]
             elif par == 'sea_floor_depth_below_sea_level':
                 variables[par] = self.sea_floor_depth_below_sea_level[indy, indx]
             elif var.ndim == 2:
@@ -339,49 +490,30 @@ class Reader(BaseReader, StructuredReader):
                 raise Exception('Wrong dimension of variable: ' +
                                 self.variable_mapping[par])
 
-            variables[par] = np.asarray(variables[par])  # If Xarray
-            start = datetime.now()
+            # If Xarray, load in so can be used in future loop iterations too
+            variables[par] = np.asarray(variables[par])            
 
-            if par not in mask_values:
-                indxgrid = indx
-                indygrid = indy
-                if par in ['x_sea_water_velocity', 'sea_water_x_velocity',
-                           'eastward_sea_water_velocity']:
-                    if not hasattr(self, 'mask_u'):
-                        if 'mask_u' in self.Dataset.variables:
-                            self.mask_u = self.Dataset.variables['mask_u'][:]
-                        elif 'mask_rho' in self.Dataset.variables:
-                            self.mask_u = self.Dataset.variables['mask_rho'][:]
-                        else:
-                            continue
-                    mask = self.mask_u[indygrid, indxgrid]
-                elif par in ['y_sea_water_velocity', 'sea_water_y_velocity',
-                             'northward_sea_water_velocity']:
-                    if not hasattr(self, 'mask_v'):
-                        if 'mask_v' in self.Dataset.variables:
-                            self.mask_v = self.Dataset.variables['mask_v'][:]
-                        elif 'mask_rho' in self.Dataset.variables:
-                            self.mask_v = self.Dataset.variables['mask_rho'][:]
-                        else:
-                            continue
-                    mask = self.mask_v[indygrid, indxgrid]
+            if par != 'land_binary_mask':
+
+                # make sure that var has matching horizontal dimensions with the mask
+                # make sure coord names also match
+                if self.mask_rho.shape[-2:] == var.shape[-2:] and set(self.mask_rho.dims).issubset(var.dims):
+                    mask, mask_name = get_mask("mask_rho", imask)
+                elif self.mask_u.shape[-2:] == var.shape[-2:] and set(self.mask_u.dims).issubset(var.dims):
+                    mask, mask_name = get_mask("mask_u", imask)
+                elif self.mask_v.shape[-2:] == var.shape[-2:] and set(self.mask_v.dims).issubset(var.dims):
+                    mask, mask_name = get_mask("mask_v", imask)
                 else:
-                    if not hasattr(self, 'land_binary_mask'):
-                        # For ROMS-Agrif this must perhaps be mask_psi?
-                        if 'mask_rho' in self.Dataset.variables:
-                            self.land_binary_mask = 1 - self.Dataset.variables['mask_rho'][:]
-                        elif 'mask_psi' in self.Dataset.variables:
-                            self.land_binary_mask = 1 - self.Dataset.variables['mask_psi'][:]
-                    mask = 1 - self.land_binary_mask[indygrid, indxgrid]
+                    raise Exception('No mask found for ' + par)
+
+                masks_for_loop[mask_name] = np.asarray(mask)
                 mask = np.asarray(mask)
-                if mask.min() == 0 and par != 'land_binary_mask':
-                    first_mask_point = np.where(mask.ravel()==0)[0][0]
-                    if variables[par].ndim == 3:
-                        upper = variables[par][0,:,:]
-                    else:
-                        upper = variables[par]
-                    mask_values[par] = upper.ravel()[first_mask_point]
-                    variables[par][variables[par]==mask_values[par]] = np.nan
+
+                if mask.min() == 0:
+                    # Not using the fill value directly allows the mask to have more control
+                    # which is necessary when using a wetdry mask that changes in time
+                    # since the fill value will not cover all masked locations then.
+                    variables[par][...,mask==0] = np.nan
 
             if var.ndim == 4:
                 # Regrid from sigma to z levels
@@ -391,7 +523,7 @@ class Reader(BaseReader, StructuredReader):
                         M = self.sea_floor_depth_below_sea_level.shape[0]
                         N = self.sea_floor_depth_below_sea_level.shape[1]
                         O = len(self.z_rho_tot)
-                        if not hasattr(self, 's2z_A'):
+                        if self.s2z_A is None:
                             logger.debug('Calculating sigma2z-coefficients for whole domain')
                             starttime = datetime.now()
                             dummyvar = np.ones((O, M, N))
@@ -509,9 +641,12 @@ class Reader(BaseReader, StructuredReader):
 
         if 'x_sea_water_velocity' in variables.keys() or \
             'sea_ice_x_velocity' in variables.keys() or \
-            'x_wind' in variables.keys():
+            'x_wind' in variables.keys() and \
+            'x_sea_water_velocity' not in self.do_not_rotate and \
+            'sea_ice_x_velocity' not in self.do_not_rotate and \
+            'x_wind' not in self.do_not_rotate:
             # We must rotate current vectors
-            if not hasattr(self, 'angle_xi_east'):
+            if self.angle_xi_east is None:
                 if 'angle' in self.Dataset.variables:
                     logger.debug('Reading angle between xi and east...')
                     self.angle_xi_east = self.Dataset.variables['angle'][:]
@@ -526,18 +661,21 @@ class Reader(BaseReader, StructuredReader):
                     variables['y_sea_water_velocity'] = rotate_vectors_angle(
                         variables['x_sea_water_velocity'],
                         variables['y_sea_water_velocity'], rad)
+                logger.debug('Rotated x_sea_water_velocity and y_sea_water_velocity')
             if 'sea_ice_x_velocity' in variables.keys() and \
                     'sea_ice_x_velocity' not in self.do_not_rotate:
                 variables['sea_ice_x_velocity'], \
                     variables['sea_ice_y_velocity'] = rotate_vectors_angle(
                         variables['sea_ice_x_velocity'],
                         variables['sea_ice_y_velocity'], rad)
+                logger.debug('Rotated sea_ice_x_velocity and sea_ice_y_velocity')
             if 'x_wind' in variables.keys() and \
                     'x_wind' not in self.do_not_rotate:
                 variables['x_wind'], \
                     variables['y_wind'] = rotate_vectors_angle(
                         variables['x_wind'],
                         variables['y_wind'], rad)
+                logger.debug('Rotated x_wind and y_wind')
 
         # Masking NaN
         for var in requested_variables:

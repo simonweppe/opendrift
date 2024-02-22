@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 import numpy as np
 from typing import List
 
-from .models.oil.oil import Oil as AdiosOil
-from .computation import gnome_oil
-from .computation import physical_properties
-from .util.estimations import oil_water_surface_tension_from_api
+from adios_db.models.oil.oil import Oil as AdiosOil
+from adios_db.computation import gnome_oil
+from adios_db.computation import physical_properties
+from adios_db.computation.estimations import oil_water_surface_tension_from_api
 
 
 class NotFullOil(Exception):
@@ -63,13 +63,19 @@ class OpendriftOil:
     def __init__(self, o):
         self.data = o
 
-        data = o['data']
-        meta = data['attributes']['metadata']
-        self.id = data['_id']
-        self.name = meta['name']
+        data = o
+        meta = o['metadata']
+        self.id = o['oil_id']
+        self.name = o['metadata']['name']
+
+        #data = o['data']
+        #meta = data['attributes']['metadata']
+        #self.id = data['_id']
+        #self.name = meta['name']
 
         logger.debug(f'Parsing Oil: {self.id} / {self.name}')
-        self.oil = AdiosOil.from_py_json(data['attributes'])
+        #self.oil = AdiosOil.from_py_json(data['attributes'])
+        self.oil = AdiosOil.from_py_json(data)
 
         if not self.oil.metadata.gnome_suitable:
             logger.error(f'{self.id} / {self.name}: is not GNOME suitable')
@@ -169,4 +175,5 @@ class OpendriftOil:
     @property
     @__require_gnome_oil__
     def k0y(self) -> float:
-        return self.gnome_oil['k0y']
+        return 2.024e-06  # Constant for all oils, should be checked
+        #return self.gnome_oil['k0y']

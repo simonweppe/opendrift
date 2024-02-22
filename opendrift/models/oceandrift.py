@@ -14,7 +14,6 @@
 #
 # Copyright 2015, Knut-Frode Dagestad, MET Norway
 
-import sys
 from datetime import datetime, timedelta
 import numpy as np
 from scipy.interpolate import interp1d
@@ -22,6 +21,7 @@ import logging; logger = logging.getLogger(__name__)
 from opendrift.models.basemodel import OpenDriftSimulation
 from opendrift.elements import LagrangianArray
 from opendrift.models.physics_methods import verticaldiffusivity_Large1994, verticaldiffusivity_Sundby1983, gls_tke, skillscore_liu_weissberg
+from opendrift.config import CONFIG_LEVEL_ESSENTIAL, CONFIG_LEVEL_BASIC, CONFIG_LEVEL_ADVANCED
 
 # Defining the oil element properties
 class Lagrangian3DArray(LagrangianArray):
@@ -66,8 +66,6 @@ class OceanDrift(OpenDriftSimulation):
 
     ElementType = Lagrangian3DArray
 
-    max_speed = 1  # m/s
-
     required_variables = {
         'x_sea_water_velocity': {'fallback': 0},
         'y_sea_water_velocity': {'fallback': 0},
@@ -82,6 +80,12 @@ class OceanDrift(OpenDriftSimulation):
         'sea_surface_wave_period_at_variance_spectral_density_maximum':
             {'fallback': 0},
         'sea_surface_wave_mean_period_from_variance_spectral_density_second_frequency_moment': {'fallback': 0},
+        'sea_surface_swell_wave_to_direction': {'fallback': 0, 'important': False},
+        'sea_surface_swell_wave_peak_period_from_variance_spectral_density': {'fallback': 0, 'important': False},
+        'sea_surface_swell_wave_significant_height': {'fallback': 0, 'important': False},
+        'sea_surface_wind_wave_to_direction': {'fallback': 0, 'important': False},
+        'sea_surface_wind_wave_mean_period': {'fallback': 0, 'important': False},
+        'sea_surface_wind_wave_significant_height': {'fallback': 0, 'important': False},
         'surface_downward_x_stress': {'fallback': 0},
         'surface_downward_y_stress': {'fallback': 0},
         'turbulent_kinetic_energy': {'fallback': 0},
@@ -117,51 +121,57 @@ class OceanDrift(OpenDriftSimulation):
         self._add_config({
             'drift:vertical_advection': {'type': 'bool', 'default': True, 'description':
                 'Advect elements with vertical component of ocean current.',
-                'level': self.CONFIG_LEVEL_BASIC},
-            'drift:vertical_mixing': {'type': 'bool', 'default': False, 'level': self.CONFIG_LEVEL_BASIC,
+                'level': CONFIG_LEVEL_BASIC},
+            'drift:vertical_mixing': {'type': 'bool', 'default': False, 'level': CONFIG_LEVEL_BASIC,
                 'description': 'Activate vertical mixing scheme with inner loop'},
             'vertical_mixing:timestep': {'type': 'float', 'min': 0.1, 'max': 3600, 'default': 60,
-                'level': self.CONFIG_LEVEL_ADVANCED, 'units': 'seconds', 'description':
+                'level': CONFIG_LEVEL_ADVANCED, 'units': 'seconds', 'description':
                 'Time step used for inner loop of vertical mixing.'},
             'vertical_mixing:diffusivitymodel': {'type': 'enum', 'default': 'environment',
                 'enum': ['environment', 'stepfunction', 'windspeed_Sundby1983',
-                 'windspeed_Large1994', 'gls_tke','constant'], 'level': self.CONFIG_LEVEL_ADVANCED,
+                 'windspeed_Large1994', 'gls_tke','constant'], 'level': CONFIG_LEVEL_ADVANCED,
                  'units': 'seconds', 'description': 'Algorithm/source used for profile of vertical diffusivity. Environment means that diffusivity is aquired from readers or environment constants/fallback.'},
             'vertical_mixing:background_diffusivity': {'type': 'float', 'min': 0, 'max': 1, 'default': 1.2e-5,
-                'level': self.CONFIG_LEVEL_ADVANCED, 'units': 'm2s-1', 'description':
+                'level': CONFIG_LEVEL_ADVANCED, 'units': 'm2s-1', 'description':
                 'Background diffusivity used below mixed layer for wind parameterisations.'},
             'vertical_mixing:TSprofiles': {'type': 'bool', 'default': False, 'level':
-                self.CONFIG_LEVEL_ADVANCED,
+                CONFIG_LEVEL_ADVANCED,
                 'description': 'Update T and S profiles within inner loop of vertical mixing. This takes more time, but may be slightly more accurate.'},
             'drift:wind_drift_depth': {'type': 'float', 'default': 0.1,
                 'min': 0, 'max': 10, 'units': 'meters',
                 'description': 'The direct wind drift (windage) is linearly decreasing from the surface value (wind_drift_factor) until 0 at this depth.',
-                'level': self.CONFIG_LEVEL_ADVANCED},
+                'level': CONFIG_LEVEL_ADVANCED},
             'drift:stokes_drift': {'type': 'bool', 'default': True,
                 'description': 'Advection elements with Stokes drift (wave orbital motion).',
-                'level': self.CONFIG_LEVEL_ADVANCED},
+                'level': CONFIG_LEVEL_ADVANCED},
+            'drift:stokes_drift_profile': {'type': 'enum', 'default': 'Phillips',
+                                           'enum': ['monochromatic', 'exponential', 'Phillips', 'windsea_swell'],
+                                           'description': 'Algorithm to calculate Stokes drift at depth from surface value',
+                                           'level': CONFIG_LEVEL_ADVANCED},
             'drift:use_tabularised_stokes_drift': {'type': 'bool', 'default': False,
                 'description': 'If True, Stokes drift is estimated from wind based on look-up-tables for given fetch (drift:tabularised_stokes_drift_fetch).',
-                'level': self.CONFIG_LEVEL_ADVANCED},
+                'level': CONFIG_LEVEL_ADVANCED},
             'drift:tabularised_stokes_drift_fetch': {'type': 'enum', 'enum': ['5000', '25000', '50000'], 'default': '25000',
-                'level': self.CONFIG_LEVEL_ADVANCED, 'description':
+                'level': CONFIG_LEVEL_ADVANCED, 'description':
                 'The fetch length when using tabularised Stokes drift.'},
             'general:seafloor_action': {'type': 'enum', 'default': 'lift_to_seafloor',
                 'enum': ['none', 'lift_to_seafloor', 'deactivate', 'previous'],
                 'description': '"deactivate": elements are deactivated; "lift_to_seafloor": elements are lifted to seafloor level; "previous": elements are moved back to previous position; "none"; seafloor is ignored.',
-                'level': self.CONFIG_LEVEL_ADVANCED},
+                'level': CONFIG_LEVEL_ADVANCED},
             'drift:truncate_ocean_model_below_m': {'type': 'float', 'default': None,
                 'min': 0, 'max': 10000, 'units': 'm',
                 'description': 'Ocean model data are only read down to at most this depth, and extrapolated below. May be specified to read less data to improve performance.',
-                'level': self.CONFIG_LEVEL_ADVANCED},
+                'level': CONFIG_LEVEL_ADVANCED},
              'seed:z': {'type': 'float', 'default': 0,
                     'min': -10000, 'max': 0, 'units': 'm',
                 'description': 'Depth below sea level where elements are released. This depth is neglected if seafloor seeding is set selected.',
-                'level': self.CONFIG_LEVEL_ESSENTIAL},
+                'level': CONFIG_LEVEL_ESSENTIAL},
             'seed:seafloor': {'type': 'bool', 'default': False,
                 'description': 'Elements are seeded at seafloor, and seeding depth (z) is neglected.',
-                'level': self.CONFIG_LEVEL_ESSENTIAL},
+                'level': CONFIG_LEVEL_ESSENTIAL},
             })
+
+        self._set_config_default('drift:max_speed', 1)
 
     def update(self):
         """Update positions and properties of elements."""
@@ -189,11 +199,40 @@ class OceanDrift(OpenDriftSimulation):
         # Optional machine learning correction
         self.machine_learning_correction()
 
+    def simulate_trajectories(self, outfile, trajectories, number=1,
+                              wind_drift_factors=None, current_drift_factors=None,
+                              time_step=None, time_step_output=None,
+                              simulation_duration=None, simulation_interval=None):
+
+        import pandas as pd
+        time_step_output = pd.Timedelta(time_step_output)
+        simulation_interval = pd.Timedelta(simulation_interval)
+        # Interpolate trajectories to output time step
+        #trajectories = trajectories.traj.gridtime(time_step_output)
+        # Find all seed combinations: position, time, wdf, cdf
+        #  Loop også over trajektorier -> origin_marker
+        step = int(simulation_interval / time_step_output)
+        tind = np.arange(0, trajectories.sizes['time'], step)
+        start_lons = trajectories.isel(time=tind).isel(trajectory=0).lon.values
+        start_lats = trajectories.isel(time=tind).isel(trajectory=0).lat.values
+        start_times = trajectories.time[tind]
+        self.set_config('drift:max_age_seconds', simulation_duration.total_seconds())
+        kwargs = {'wind_drift_factor': wind_drift_factors[0],
+                  'current_drift_factor': current_drift_factors[0]}
+        for (lo,la,ti) in zip(start_lons, start_lats, start_times):
+            if np.isnan(lo):
+                continue
+            ti = pd.Timestamp(ti.values).to_pydatetime()
+            self.seed_elements(lon=lo, lat=la, time=ti, number=number, **kwargs)
+        print(self)
+        self.run(outfile=outfile, end_time=pd.Timestamp(start_times[-1].values).to_pydatetime()+simulation_duration)
+        # Simulate and save to file
+
     def wind_drift_factor_from_trajectory_lw(self, drifters, wind_drift_factors,
                                              simulation_length, simulation_interval):
         """Perform simulations and use skillscore to optimize wind_drift_factor
 
-        drifters: list of disctionaries with numpy arrays of 'lon' and 'lat'
+        drifters: list of dictionaries with numpy arrays of 'lon' and 'lat'
                     and list of datetimes
         wind_drift_factors: the wind_drift_factors to use for simulations/optimalizations
         """
@@ -459,10 +498,13 @@ class OceanDrift(OpenDriftSimulation):
         # get profile of eddy diffusivity
         # get vertical eddy diffusivity from environment or specific model
         diffusivity_model = self.get_config('vertical_mixing:diffusivitymodel')
+        diffusivity_fallback = self.get_config('environment:fallback:ocean_vertical_diffusivity')
         if diffusivity_model == 'environment':
-            if not hasattr(self, 'fallback_values'):
-                self.set_fallback_values()
-            if 'ocean_vertical_diffusivity' in self.environment_profiles and not (self.environment_profiles['ocean_vertical_diffusivity'].min() == self.fallback_values['ocean_vertical_diffusivity'] and self.environment_profiles['ocean_vertical_diffusivity'].max() == self.fallback_values['ocean_vertical_diffusivity']):
+            if 'ocean_vertical_diffusivity' in self.environment_profiles and not (
+                    self.environment_profiles['ocean_vertical_diffusivity'].min() ==
+                    diffusivity_fallback and
+                    self.environment_profiles['ocean_vertical_diffusivity'].max() ==
+                    diffusivity_fallback):
                 Kprofiles = self.environment_profiles[
                     'ocean_vertical_diffusivity']
                 logger.debug('Using diffusivity from ocean model')
@@ -473,8 +515,8 @@ class OceanDrift(OpenDriftSimulation):
                         -np.arange(0, self.environment.ocean_mixed_layer_thickness.max() + 2)
                 Kprofiles = self.get_diffusivity_profile('windspeed_Large1994')
         elif diffusivity_model == 'constant':
-            logger.debug('Using constant diffusivity specified by fallback_values[''ocean_vertical_diffusivity''] = %s m2.s-1' % (self.fallback_values['ocean_vertical_diffusivity']))
-            Kprofiles = self.fallback_values['ocean_vertical_diffusivity']*np.ones(
+            logger.debug('Using constant diffusivity specified by fallback_values[''ocean_vertical_diffusivity''] = %s m2.s-1' % (diffusivity_fallback))
+            Kprofiles = diffusivity_fallback*np.ones(
                     self.environment_profiles['ocean_vertical_diffusivity'].shape) # keep constant value for ocean_vertical_diffusivity
         else:
             logger.debug('Using functional expression for diffusivity')
@@ -496,7 +538,7 @@ class OceanDrift(OpenDriftSimulation):
             Sprofiles = self.environment_profiles['sea_water_salinity']
             Tprofiles = \
                 self.environment_profiles['sea_water_temperature']
-            if ('sea_water_salinity' in self.fallback_values and
+            if (self.get_config('environment:fallback:sea_water_salinity') is not None and
                 Sprofiles.min() == Sprofiles.max()):
                 logger.debug('Salinity and temperature are fallback'
                               'values, skipping TSprofile')

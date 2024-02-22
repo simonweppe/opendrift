@@ -26,6 +26,7 @@ import logging; logger = logging.getLogger(__name__)
 
 from opendrift.models.basemodel import OpenDriftSimulation
 from opendrift.elements import LagrangianArray
+from opendrift.config import CONFIG_LEVEL_ESSENTIAL, CONFIG_LEVEL_BASIC, CONFIG_LEVEL_ADVANCED
 
 
 class ShipObject(LagrangianArray):
@@ -41,28 +42,28 @@ class ShipObject(LagrangianArray):
                          'min': 1,
                          'max': 500,
             'description': 'Length of ship',
-            'level': OpenDriftSimulation.CONFIG_LEVEL_ESSENTIAL,
+            'level': CONFIG_LEVEL_ESSENTIAL,
                          'default': 80}),
         ('height', {'dtype': np.float32,
                          'units': 'm',
                          'min': 1,
                          'max': 100,
-            'description': 'Total height of ship',
-            'level': OpenDriftSimulation.CONFIG_LEVEL_ESSENTIAL,
+            'description': 'Total height of ship (above and below waterline)',
+            'level': CONFIG_LEVEL_ESSENTIAL,
                          'default': 8}),
         ('draft', {'dtype': np.float32,  # wet part of ship [m]
                          'units': 'm',
                          'min': 1,
                          'max': 30,
             'description': 'Draft of ship (depth below water)',
-            'level': OpenDriftSimulation.CONFIG_LEVEL_ESSENTIAL,
+            'level': CONFIG_LEVEL_ESSENTIAL,
                          'default': 4.0}),
         ('beam', {'dtype': np.float32,  # width of ship
                          'min': 1,
                          'max': 70,
                          'units': 'm',
             'description': 'Beam (width) of ship',
-            'level': OpenDriftSimulation.CONFIG_LEVEL_ESSENTIAL,
+            'level': CONFIG_LEVEL_ESSENTIAL,
                          'default': 10}),
         ('wind_drag_coeff', {'dtype': np.float32,  # Cf
                              'units': '1',
@@ -97,7 +98,6 @@ class ShipDrift(OpenDriftSimulation):
         'sea_surface_wave_mean_period_from_variance_spectral_density_second_frequency_moment': {'fallback': 0}
         }
 
-    max_speed = 2  # m/s
     winwav_angle = 20  # Angular offset in degrees
 
     def __init__(self, *args, **kwargs):
@@ -144,7 +144,7 @@ class ShipDrift(OpenDriftSimulation):
 
         self._add_config({'seed:orientation': {'type': 'enum',
             'enum':['left', 'right', 'random'], 'default': 'random',
-            'level': OpenDriftSimulation.CONFIG_LEVEL_ESSENTIAL,
+            'level': CONFIG_LEVEL_ESSENTIAL,
             'description': 'If ships are oriented to the left or right of the downwind direction,'
                 'or whether this is unknown. Left/right means that wind will hit ship from backboard/steerboard'}})
 
@@ -152,6 +152,8 @@ class ShipDrift(OpenDriftSimulation):
         # (in contrast to the Leeway model), we use a default diffusivity
         # to yield some variability.
         self._set_config_default('drift:horizontal_diffusivity', 100)
+
+        self._set_config_default('drift:max_speed', 2)
 
     def seed_elements(self, *args, **kwargs):
 

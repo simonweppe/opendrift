@@ -24,65 +24,15 @@ logger = logging.getLogger(__name__)
 from opendrift.readers.basereader import BaseReader, StructuredReader
 import xarray as xr
 
-def proj_from_CF_dict(c):
-
-    # This method should be extended to other projections:
-    # https://cfconventions.org/wkt-proj-4.html
-    if not 'grid_mapping_name' in c:
-        raise ValueError('grid_mapping not given in dictionary')
-    gm = c['grid_mapping_name']
-
-    if 'earth_radius' in c:
-        earth_radius = c['earth_radius']
-    else:
-        earth_radius = 6371000.
-    if gm == 'polar_stereographic':
-        lon_0 = 0  # default, but dangerous
-        for l0 in ['longitude_of_projection_origin',
-                   'longitude_of_central_meridian',
-                   'straight_vertical_longitude_from_pole']:
-            if l0 in c:
-                lon_0 = c[l0]
-        if 'latitude_of_origin' in c:
-            lat_ts = c['latitude_of_origin']
-        else:
-            lat_ts = c['latitude_of_projection_origin']
-        if 'false_easting' in c:
-            x0 = c['false_easting']
-        else:
-            x0 = 0  # dangerous?
-        if 'false_northing' in c:
-            y0 = c['false_northing']
-        else:
-            y0 = 0  # dangerous: is there a better default?
-        if 'scale_factor_at_projection_origin' in c:
-            k0 = c['scale_factor_at_projection_origin']
-        else:
-            k0 = 1.0
-        proj4 = ('+proj={!s} +lat_0={!s} +lon_0={!s} +lat_ts={!s} '
-                 '+k_0={!s} +x_0={!s} +y_0={!s} +units=m +a={!s} '
-                 '+no_defs'.format('stere',
-                                   c['latitude_of_projection_origin'],
-                                   lon_0, lat_ts, k0, x0, y0, earth_radius)
-                 )
-
-    elif gm == 'rotated_latitude_longitude':
-        proj4 = '+proj=ob_tran +o_proj=longlat +lon_0=%s +o_lat_p=%s +R=%s +no_defs' % (
-                c['grid_north_pole_longitude']-180, c['grid_north_pole_latitude'], earth_radius)
-
-    proj = pyproj.Proj(proj4)
-
-    return proj4, proj
-
 
 class Reader(StructuredReader, BaseReader):
     """
-    A reader for `CF-compliant <https://cfconventions.org/>`_ netCDF files. It can take a single file, or a file pattern.
+    A reader for `CF-compliant <https://cfconventions.org/>`_ netCDF files. It can take a single file, a file pattern, a URL or an xarray Dataset.
 
     Args:
-        :param filename: A single netCDF file, or a pattern of files. The
+        :param filename: A single netCDF file, a pattern of files, or a xr.Dataset. The
                          netCDF file can also be an URL to an OPeNDAP server.
-        :type filename: string, requiered.
+        :type filename: string, xr.Dataset (required).
 
         :param name: Name of reader
         :type name: string, optional
@@ -104,48 +54,57 @@ class Reader(StructuredReader, BaseReader):
        from opendrift.readers.reader_netCDF_CF_generic import Reader
        r = Reader("*.nc")
 
-    or an OPeNDAP URL can be used:
+    An OPeNDAP URL can be used:
 
     .. code::
 
        from opendrift.readers.reader_netCDF_CF_generic import Reader
        r = Reader('https://thredds.met.no/thredds/dodsC/mepslatest/meps_lagged_6_h_latest_2_5km_latest.nc')
 
+    A xr.Dataset or a zarr dataset in an object store with auth can be used:
 
+    .. code::
+
+        from opendrift.readers.reader_netCDF_CF_generic import Reader
+        r = Reader(ds, zarr_storage_options)
     """
 
     def __init__(self, filename=None, zarr_storage_options=None, name=None, proj4=None,
                  standard_name_mapping={}, ensemble_member=None):
 
-        if zarr_storage_options is not None:
-            self.Dataset = xr.open_zarr(filename, storage_options=zarr_storage_options)
-            if name is None:
-                self.name = filename
-            else:
-                self.name = name
+        if isinstance(filename, xr.Dataset):
+            self.Dataset = filename
+            self.name = name if name is not None else str(filename)
         else:
-            if filename is None:
-                raise ValueError('Need filename as argument to constructor')
-
-            filestr = str(filename)
-            if name is None:
-                self.name = filestr
-            else:
-                self.name = name
-
-            try:
-                # Open file, check that everything is ok
-                logger.info('Opening dataset: ' + filestr)
-                if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
-                    logger.info('Opening files with MFDataset')
-                    self.Dataset = xr.open_mfdataset(filename, data_vars='minimal', coords='minimal',
-                                                     chunks={'time': 1}, decode_times=False)
-                elif ensemble_member is not None:
-                    self.Dataset = xr.open_dataset(filename, decode_times=False).isel(ensemble_member=ensemble_member)
+            if zarr_storage_options is not None:
+                self.Dataset = xr.open_zarr(filename, storage_options=zarr_storage_options)
+                if name is None:
+                    self.name = filename
                 else:
-                    self.Dataset = xr.open_dataset(filename, decode_times=False)
-            except Exception as e:
-                raise ValueError(e)
+                    self.name = name
+            else:
+                if filename is None:
+                    raise ValueError('Need filename as argument to constructor')
+
+                filestr = str(filename)
+                if name is None:
+                    self.name = filestr
+                else:
+                    self.name = name
+
+                try:
+                    # Open file, check that everything is ok
+                    logger.info('Opening dataset: ' + filestr)
+                    if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
+                        logger.info('Opening files with MFDataset')
+                        self.Dataset = xr.open_mfdataset(filename, data_vars='minimal', coords='minimal',
+                                                        chunks={'time': 1}, decode_times=False)
+                    elif ensemble_member is not None:
+                        self.Dataset = xr.open_dataset(filename, decode_times=False).isel(ensemble_member=ensemble_member)
+                    else:
+                        self.Dataset = xr.open_dataset(filename, decode_times=False)
+                except Exception as e:
+                    raise ValueError(e)
 
         # NB: check below might not be waterproof
         if 'ocean_time' in self.Dataset.dims and 'eta_u' in self.Dataset.dims and \
@@ -160,23 +119,26 @@ class Reader(StructuredReader, BaseReader):
         lat_var_name = None
         self.unitfactor = 1
         self.realizations = None
+        self.ensemble_dimension = None
+        self.dimensions = {}
         for var_name in self.Dataset.variables:
             var = self.Dataset.variables[var_name]
 
             if self.proj4 is None:
-                if 'proj4' in var.attrs:
-                    self.proj4 = str(var.attrs['proj4'])
-                elif 'proj4_string' in var.attrs:
-                    self.proj4 = str(var.attrs['proj4_string'])
-                elif 'grid_mapping_name' in var.attrs:
+                if 'grid_mapping_name' in var.attrs:
                     logger.debug(
                         ('Parsing CF grid mapping dictionary:'
                         ' ' + str(var.attrs)))
-                    try:
-                        self.proj4, proj =\
-                            proj_from_CF_dict(var.attrs)
+                    try:  # parse proj4 with pyproj.CRS
+                        crs = pyproj.CRS.from_cf(var.attrs)
+                        self.proj4 = crs.to_proj4()
                     except:
                         logger.info('Could not parse CF grid_mapping')
+                if self.proj4 is None:
+                    if 'proj4' in var.attrs:
+                        self.proj4 = str(var.attrs['proj4'])
+                    elif 'proj4_string' in var.attrs:
+                        self.proj4 = str(var.attrs['proj4_string'])
 
             standard_name = var.attrs['standard_name'] if 'standard_name' in var.attrs else ''
             long_name = var.attrs['long_name'] if 'long_name' in var.attrs else ''
@@ -193,9 +155,11 @@ class Reader(StructuredReader, BaseReader):
                     long_name.lower() == 'latitude' or \
                     var_name.lower() in ['latitude', 'lat']:
                 lat_var_name = var_name
-            if (axis == 'X' or standard_name == 'projection_x_coordinate') \
+            if (axis == 'X' or standard_name == 'projection_x_coordinate' or standard_name == 'grid_longitude') \
                     and var.ndim == 1:
                 self.xname = var_name
+                if len(var.dims)==1:
+                    self.dimensions['x'] = var.dims[0]
                 # Fix for units; should ideally use udunits package
                 if units == 'km':
                     self.unitfactor = 1000
@@ -203,9 +167,11 @@ class Reader(StructuredReader, BaseReader):
                     self.unitfactor = 100000
                 var_data = var.values
                 x = var_data*self.unitfactor
-            if (axis == 'Y' or standard_name == 'projection_y_coordinate') \
+            if (axis == 'Y' or standard_name == 'projection_y_coordinate' or standard_name == 'grid_latitude') \
                     and var.ndim == 1:
                 self.yname = var_name
+                if len(var.dims)==1:
+                    self.dimensions['y'] = var.dims[0]
                 # Fix for units; should ideally use udunits package
                 if units == 'km':
                     self.unitfactor = 1000
@@ -213,9 +179,11 @@ class Reader(StructuredReader, BaseReader):
                     self.unitfactor = 100000
                 var_data = var.values
                 y = var_data*self.unitfactor
-            if standard_name == 'depth' or axis == 'Z':
+            if (standard_name == 'depth' or axis == 'Z') and var.ndim==1:
                 var_data = var.values
-                if var_data.ndim == 1:
+                if len(var.dims)==1:
+                    self.dimensions['z'] = var.dims[0]
+                if var_data.ndim == 1:  # Earlier this was not a requirement above
                     if 'positive' not in var.attrs or \
                             var.attrs['positive'] == 'up':
                         self.z = var_data
@@ -226,6 +194,8 @@ class Reader(StructuredReader, BaseReader):
                 var_data = var.values
                 time = var_data
                 time_units = units
+                if len(var.dims)==1:
+                    self.dimensions['time'] = var.dims[0]
 
                 if isinstance(time[0], np.bytes_):
                     # This hack is probably only necessary for CERSAT/GELOBCURRENT
@@ -255,6 +225,8 @@ class Reader(StructuredReader, BaseReader):
                     self.realizations = var_data
                     logger.debug('%i ensemble members available'
                                 % len(self.realizations))
+                if len(var.dims)==1:
+                    self.ensemble_dimension = var.dims[0]
 
         # Temporary workaround for Barents EPS model
         if self.realizations is None and 'ensemble_member' in self.Dataset.dims:
@@ -275,23 +247,29 @@ class Reader(StructuredReader, BaseReader):
             # We load lon and lat arrays into memory
             lon_var = self.Dataset.variables[lon_var_name]
             lat_var = self.Dataset.variables[lat_var_name]
+            self.xname = lon_var_name
+            self.yname = lat_var_name
             if lon_var.ndim == 1:
                 logger.debug('Lon and lat are 1D arrays - using as projection coordinates')
                 x = lon_var.data
                 y = lat_var.data
-                self.xname = lon_var_name
-                self.yname = lat_var_name
+                self.dimensions['x'] = lon_var.dims[0]
+                self.dimensions['y'] = lat_var.dims[0]
                 if self.proj4 is None:
                     self.proj4 = '+proj=latlong'
             elif lon_var.ndim == 2:
                 logger.debug('Lon and lat are 2D arrays - dataset is unprojected')
                 self.lon = lon_var.data
                 self.lat = lat_var.data
+                self.dimensions['x'] = lon_var.dims[0]
+                self.dimensions['y'] = lat_var.dims[1]
                 self.projected = False
             elif lon_var.ndim == 3:
                 logger.debug('Lon lat are 3D arrays, reading first time')
                 self.lon = lon_var[0,:,:].data
                 self.lat = lat_var[0,:,:].data
+                self.dimensions['x'] = lon_var.dims[1]
+                self.dimensions['y'] = lat_var.dims[2]
                 self.projected = False
         else:
             if self.proj4 is None:
@@ -327,6 +305,8 @@ class Reader(StructuredReader, BaseReader):
             self.xmin -= 360
             self.xmax -= 360
             self.x -= 360
+
+        logger.info(f'Detected dimensions: {self.dimensions}')
 
         ##########################################
         # Find all variables having standard_name
@@ -370,6 +350,15 @@ class Reader(StructuredReader, BaseReader):
 
         self.variables = list(self.variable_mapping.keys())
 
+        # Workaround for datasets with unnecessary ensemble dimension for static variables
+        for vn, va in self.variable_mapping.items():
+            if vn == 'sea_floor_depth_below_sea_level':
+                var = self.Dataset.variables[va]
+                if 'ensemble_member' in var.dims:
+                    logger.info(f'Removing ensemble dimension from {vn}')
+                    var = var.isel(ensemble_member=0).squeeze()
+                    self.Dataset[va] = var
+
         # Run constructor of parent Reader class
         super().__init__()
 
@@ -409,7 +398,7 @@ class Reader(StructuredReader, BaseReader):
 
         if self.global_coverage():
             if self.lon_range() == '0to360':
-                x = np.mod(x, 360)  # Shift x/lons to 0-360 
+                x = np.mod(x, 360)  # Shift x/lons to 0-360
             elif self.lon_range() == '-180to180':
                 x = np.mod(x + 180, 360) - 180 # Shift x/lons to -180-180
         indx = np.floor(np.abs(x-self.x[0])/self.delta_x-clipped).astype(int) + clipped
@@ -446,18 +435,31 @@ class Reader(StructuredReader, BaseReader):
 
             ensemble_dim = None
             if continuous is True:
-                if var.ndim == 2:
-                    variables[par] = var[indy, indx]
-                elif var.ndim == 3:
-                    variables[par] = var[indxTime, indy, indx]
-                elif var.ndim == 4:
-                    variables[par] = var[indxTime, indz, indy, indx]
-                elif var.ndim == 5:  # Ensemble data
-                    variables[par] = var[indxTime, indz, indrealization, indy, indx]
-                    ensemble_dim = 0  # Hardcoded ensemble dimension for now
-                else:
-                    raise Exception('Wrong dimension of variable: ' +
-                                    self.variable_mapping[par])
+                if True:  # new dynamic way
+                    dimindices = {'x': indx, 'y': indy, 'time': indxTime, 'z': indz}
+                    subset = {vdim:dimindices[dim] for dim,vdim in self.dimensions.items() if vdim in var.dims}
+                    variables[par] = var.isel(subset)
+                    # Remove any unknown dimensions
+                    for dim in variables[par].dims:
+                        if dim not in self.dimensions.values() and dim != self.ensemble_dimension:
+                            logger.debug(f'Removing unknown dimension: {dim}')
+                            variables[par] = variables[par].squeeze(dim=dim)
+                    if self.ensemble_dimension is not None and self.ensemble_dimension in variables[par].dims:
+                        ensemble_dim = 0  # hardcoded, may not work for MEPS
+                else:  # old hardcoded way
+                    if var.ndim == 2:
+                        variables[par] = var[indy, indx]
+                    elif var.ndim == 3:
+                        variables[par] = var[indxTime, indy, indx]
+                    elif var.ndim == 4:
+                        variables[par] = var[indxTime, indz, indy, indx]
+                    elif var.ndim == 5:  # Ensemble data
+                        variables[par] = var[indxTime, indz, indrealization, indy, indx]
+                        ensemble_dim = 0  # Hardcoded ensemble dimension for now
+                    else:
+                        raise Exception('Wrong dimension of variable: ' +
+                                        self.variable_mapping[par])
+            # The below should also be updated to dynamic subsetting
             else:  # We need to read left and right parts separately
                 if var.ndim == 2:
                     left = var[indy, indx_left]
@@ -491,7 +493,7 @@ class Reader(StructuredReader, BaseReader):
             # Ensemble blocks are split into lists
             if ensemble_dim is not None:
                 num_ensembles = variables[par].shape[ensemble_dim]
-                logger.debug('Num ensembles: %i ' % num_ensembles)
+                logger.debug(f'Num ensembles for {par}: {num_ensembles}')
                 newvar = [0]*num_ensembles
                 for ensemble_num in range(num_ensembles):
                     newvar[ensemble_num] = \
@@ -522,7 +524,18 @@ class Reader(StructuredReader, BaseReader):
             if self.y_is_north() is True:
                 logger.debug('North is up, no rotation necessary')
             else:
-                self.rotate_variable_dict(variables)
+                rx, ry = np.meshgrid(variables['x'], variables['y'])
+                lon, lat = self.xy2lonlat(rx, ry)
+                from opendrift.readers.basereader import vector_pairs_xy
+                for vectorpair in vector_pairs_xy:
+                    if vectorpair[0] in self.rotate_mapping and vectorpair[0] in variables.keys():
+                        if self.proj.__class__.__name__ == 'fakeproj':
+                            logger.warning('Rotation from fakeproj is not yet implemented, skipping.')
+                            continue
+                        logger.debug(f'Rotating vector from east/north to xy orientation: {vectorpair[0:2]}')
+                        variables[vectorpair[0]], variables[vectorpair[1]] = self.rotate_vectors(
+                            lon, lat, variables[vectorpair[0]], variables[vectorpair[1]],
+                            pyproj.Proj('+proj=latlong'), self.proj)
 
         if hasattr(self, 'shift_x'):
             # "hidden feature": if reader.shift_x and reader.shift_y are defined,

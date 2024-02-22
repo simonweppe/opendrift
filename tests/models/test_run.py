@@ -31,6 +31,7 @@ from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.readers import reader_ROMS_native
 from opendrift.readers import reader_oscillating
 from opendrift.models.oceandrift import OceanDrift
+from opendrift.models.basemodel import Mode, WrongMode
 from opendrift.models.openoil import OpenOil
 from opendrift.models.leeway import Leeway
 from opendrift.models.pelagicegg import PelagicEggDrift
@@ -91,6 +92,25 @@ class TestRun(unittest.TestCase):
         self.assertEqual(o.num_elements_deactivated(), 0)
         self.assertEqual(o.num_elements_total(), number)
 
+    def test_modes(self):
+        '''Test that methods are not allowed if wrong mode'''
+        o = OceanDrift(loglevel=50)
+        norkyst = reader_netCDF_CF_generic.Reader(o.test_data_folder() +
+                    '14Jan2016_NorKyst_z_3d/NorKyst-800m_ZDEPTHS_his_00_3Dsubset.nc')
+        o.set_config('environment:constant:land_binary_mask', 0)
+        o.set_config('general:use_auto_landmask', False)
+        o.add_reader(norkyst)
+        assert o.mode == Mode.Config
+        o.seed_elements(lon=3, lat=60, time=datetime.now())
+        assert o.mode == Mode.Ready
+        with self.assertRaises(WrongMode):  # Cannot add readers after elements have been seeded
+            o.add_reader(norkyst)
+        with self.assertRaises(WrongMode):  # Cannot set config after readers have been added
+            o.set_config('seed:ocean_only', False)
+        o.run(steps=1)
+        assert o.mode == Mode.Result
+
+
     def test_seed_cone(self):
         o = OceanDrift(loglevel=20)
         o.seed_cone(time=[datetime.now(),
@@ -142,13 +162,13 @@ class TestRun(unittest.TestCase):
         reader_norkyst = reader_netCDF_CF_generic.Reader(o.test_data_folder() + '16Nov2015_NorKyst_z_surface/norkyst800_subset_16Nov2015.nc')
         print(reader_norkyst, reader_arome)
         o.add_reader([reader_norkyst, reader_arome])
-        o.seed_elements(lon=4, lat=60, time=reader_arome.end_time -
-                        timedelta(hours=3), number=1)
         o.set_config('environment:fallback:land_binary_mask', 0)
         o.set_config('environment:fallback:x_sea_water_velocity', 1)
         o.set_config('environment:fallback:y_sea_water_velocity', 0)
         o.set_config('environment:constant:x_wind', 0)
         o.set_config('environment:constant:y_wind', 5)
+        o.seed_elements(lon=4, lat=60, time=reader_arome.end_time -
+                        timedelta(hours=3), number=1)
         o.run(duration=timedelta(hours=6))
         y_wind = np.array(o.get_property('y_wind')[0][:,0])
         x_current = np.array(o.get_property('x_sea_water_velocity')[0][:,0])
@@ -175,10 +195,10 @@ class TestRun(unittest.TestCase):
         norkyst = reader_netCDF_CF_generic.Reader(o.test_data_folder() + '14Jan2016_NorKyst_z_3d/NorKyst-800m_ZDEPTHS_his_00_3Dsubset.nc')
         o2.set_config('environment:fallback:land_binary_mask', 0)
         o2.add_reader([norkyst])
+        o2.set_config('drift:advection_scheme', 'runge-kutta')
         z=-40*np.random.rand(number)
         o2.seed_elements(5, 62.5, number=number, radius=5000, z=z,
                         time=norkyst.start_time)
-        o2.set_config('drift:advection_scheme', 'runge-kutta')
         o2.run(steps=4*3, time_step=timedelta(minutes=15))
         # And finally repeating the initial run to check that indetical
         o3 = OceanDrift(loglevel=30, seed=0)
@@ -204,6 +224,10 @@ class TestRun(unittest.TestCase):
         latvec = np.array([60, 60, 61, 61])
         time=datetime(2015, 1, 1, 12, 5, 17)
         o.set_config('seed:oil_type', 'HEIDRUN')
+        o.set_config('environment:fallback:x_wind', 0)
+        o.set_config('environment:fallback:y_wind', 0)
+        o.set_config('environment:fallback:x_sea_water_velocity', 0)
+        o.set_config('environment:fallback:y_sea_water_velocity', 0)
         o.seed_within_polygon(lonvec, latvec, number=number,
                               time=time, wind_drift_factor=.09)
         self.assertEqual(o.num_elements_scheduled(), number)
@@ -317,9 +341,9 @@ class TestRun(unittest.TestCase):
         o1.add_reader([norkyst])
         o1.set_config('environment:fallback:x_wind', 8)
         o1.set_config('environment:fallback:land_binary_mask', 0)
+        o1.set_config('vertical_mixing:timestep', 20.) # seconds
         o1.seed_elements(4.1, 63.3, radius=1000, number=100,
                          time=norkyst.start_time)
-        o1.set_config('vertical_mixing:timestep', 20.) # seconds
 
         o1.run(steps=20, time_step=300, time_step_output=1800,
                export_buffer_length=10, outfile='verticalmixing.nc')
@@ -360,18 +384,18 @@ class TestRun(unittest.TestCase):
             o.set_config('drift:vertical_mixing', True)
             o.set_config('vertical_mixing:diffusivitymodel', 'environment')
             o.set_config('vertical_mixing:timestep', case['T'])
+            o.set_config('environment:fallback:land_binary_mask', 0)
             o.seed_elements(lon=4, lat=60, z=-10, time=time, number=N,
                             terminal_velocity=case['vt'])
             o.time = time
             o.time_step = timedelta(hours=2)
             o.release_elements()
-            o.set_config('environment:fallback:land_binary_mask', 0)
             o.environment = np.array(np.ones(N)*100,
                             dtype=[('sea_floor_depth_below_sea_level',
                                     np.float32)]).view(np.recarray)
             o.environment_profiles = { 'z': z, 'ocean_vertical_diffusivity':
                                       np.tile(diffusivity, (N, 1)).T}
-            o.set_fallback_values()
+            o.env.finalize()
             o.vertical_mixing()
             self.assertAlmostEqual(o.elements.z.min(), case['zmin'], 1)
             self.assertAlmostEqual(o.elements.z.max(), case['zmax'], 1)
@@ -541,17 +565,17 @@ class TestRun(unittest.TestCase):
         # time_step from config
         o = OceanDrift(loglevel=50)
         o.set_config('environment:fallback:land_binary_mask', 0)
-        o.seed_elements(lon=4, lat=60, time=datetime.now())
         o.set_config('general:time_step_minutes', 15)
+        o.seed_elements(lon=4, lat=60, time=datetime.now())
         o.run(steps=2)
         self.assertEqual(o.time_step.total_seconds(), 900)
         self.assertEqual(o.time_step_output.total_seconds(), 900)
         # time_step and time_step_output from config
         o = OceanDrift(loglevel=50)
         o.set_config('environment:fallback:land_binary_mask', 0)
-        o.seed_elements(lon=4, lat=60, time=datetime.now())
         o.set_config('general:time_step_minutes', 15)
         o.set_config('general:time_step_output_minutes', 120)
+        o.seed_elements(lon=4, lat=60, time=datetime.now())
         o.run(steps=2)
         self.assertEqual(o.time_step.total_seconds(), 900)
         self.assertEqual(o.time_step_output.total_seconds(), 7200)
@@ -597,11 +621,10 @@ class TestRun(unittest.TestCase):
         lon = 4.5; lat = 62.0
         o.set_config('seed:droplet_diameter_min_subsea', 0.0010)  # s
         o.set_config('seed:droplet_diameter_max_subsea', 0.0010)  # s
+        o.set_config('drift:vertical_mixing', True)
+        o.set_config('vertical_mixing:timestep', 1)  # s
         o.seed_elements(lon, lat, z='seafloor', time=reader_norkyst.start_time,
                         density=1000, oiltype='GENERIC BUNKER C')
-        o.set_config('drift:vertical_mixing', True)
-
-        o.set_config('vertical_mixing:timestep', 1)  # s
         o.run(steps=3, time_step=300, time_step_output=300)
         #o.plot_property('z')
         z, status = o.get_property('z')
@@ -620,12 +643,11 @@ class TestRun(unittest.TestCase):
         lon = 4.5; lat = 62.0
         o.set_config('seed:droplet_diameter_min_subsea', 0.0010)  # s
         o.set_config('seed:droplet_diameter_max_subsea', 0.0010)  # s
+        o.set_config('drift:vertical_mixing', True)
+        o.set_config('vertical_mixing:timestep', 1)  # s
         # Seed elements 50 meters above seafloor:
         o.seed_elements(lon, lat, z='seafloor+50', time=reader_norkyst.start_time,
                         density=1000, oil_type='AASGARD A 2003')
-        o.set_config('drift:vertical_mixing', True)
-
-        o.set_config('vertical_mixing:timestep', 1)  # s
         o.run(steps=3, time_step=300, time_step_output=300)
         #o.plot_property('z')
         z, status = o.get_property('z')
@@ -642,12 +664,11 @@ class TestRun(unittest.TestCase):
         lon = 5.0; lat = 64.0
         o.set_config('seed:droplet_diameter_min_subsea', 0.0005)
         o.set_config('seed:droplet_diameter_max_subsea', 0.005)
-        o.seed_elements(lon, lat, z=-350, time=reader_norkyst.start_time,
-                        density=1000, oil_type='AASGARD A 2003')
         #o.set_config('vertical_mixing:TSprofiles', True)
         o.set_config('drift:vertical_mixing', True)
-
         o.set_config('vertical_mixing:timestep', 1)  # s
+        o.seed_elements(lon, lat, z=-350, time=reader_norkyst.start_time,
+                        density=1000, oil_type='AASGARD A 2003')
         o.run(steps=3, time_step=300, time_step_output=300)
         z, status = o.get_property('z')
         self.assertAlmostEqual(z[-1,0], -235.5, 1)  # After some rising
@@ -664,11 +685,10 @@ class TestRun(unittest.TestCase):
         lon = 4.5; lat = 62.0
         o.set_config('seed:droplet_diameter_min_subsea', 0.0005)
         o.set_config('seed:droplet_diameter_max_subsea', 0.001)
+        o.set_config('drift:vertical_mixing', True)
+        o.set_config('vertical_mixing:timestep', 1)  # s
         o.seed_elements(lon, lat, z=-5000, time=reader_norkyst.start_time,
                         density=1000, oil_type='GENERIC BUNKER C')
-        o.set_config('drift:vertical_mixing', True)
-
-        o.set_config('vertical_mixing:timestep', 1)  # s
         o.run(steps=3, time_step=300, time_step_output=300)
         z, status = o.get_property('z')
         self.assertAlmostEqual(z[0,0], -147.3, 1)  # Seeded at seafloor depth
@@ -686,12 +706,11 @@ class TestRun(unittest.TestCase):
         lon = 4.5; lat = 62.0
         o.set_config('seed:droplet_diameter_min_subsea', 0.0005)
         o.set_config('seed:droplet_diameter_max_subsea', 0.001)
-        o.seed_elements(lon, lat, z=[-5000, -100], time=reader_norkyst.start_time,
-                        density=1000, number=2, oil_type='AASGARD A 2003')
         o.set_config('general:seafloor_action', 'deactivate')  # This time we deactivate
         o.set_config('drift:vertical_mixing', True)
-
         o.set_config('vertical_mixing:timestep', 1)  # s
+        o.seed_elements(lon, lat, z=[-5000, -100], time=reader_norkyst.start_time,
+                        density=1000, number=2, oil_type='AASGARD A 2003')
         o.run(steps=3, time_step=300, time_step_output=300)
         z, status = o.get_property('z')
         self.assertEqual(o.num_elements_total(), 2)
@@ -704,7 +723,7 @@ class TestRun(unittest.TestCase):
         # See an element at some depth, and progapate towards coast
         # (shallower water) and check that it is not penetrating seafloor
         o = OceanDrift(loglevel=50)
-        o.max_speed = 100
+        o.set_config('drift:max_speed', 100)
         reader_norkyst = reader_netCDF_CF_generic.Reader(o.test_data_folder() + '14Jan2016_NorKyst_z_3d/NorKyst-800m_ZDEPTHS_his_00_3Dsubset.nc')
         reader_norkyst.buffer = 200
         o.add_reader([reader_norkyst],
@@ -712,8 +731,8 @@ class TestRun(unittest.TestCase):
         o.set_config('environment:fallback:x_sea_water_velocity', 10) # Pure eastward motion
         o.set_config('environment:fallback:y_sea_water_velocity', 0)
         o.set_config('environment:fallback:land_binary_mask', 0)
-        o.seed_elements(3.9, 62.0, z=-200, time=reader_norkyst.start_time)
         o.set_config('drift:vertical_mixing', False)
+        o.seed_elements(3.9, 62.0, z=-200, time=reader_norkyst.start_time)
         o.run(steps=12, time_step=300)
         seafloor_depth, status = o.get_property('sea_floor_depth_below_sea_level')
         z, status = o.get_property('z')
@@ -805,6 +824,8 @@ class TestRun(unittest.TestCase):
 
     def test_unseeded_elements(self):
         o = PlastDrift()
+        o.set_config('environment:fallback:land_binary_mask', 0)
+        o.set_config('environment:fallback:y_sea_water_velocity', 1)
         # Seeding elements for 12 hours, but running only 6
         time = datetime(2019, 8, 30, 12)
         o.seed_elements(lon=4.85, lat=60, number=10,
@@ -813,8 +834,6 @@ class TestRun(unittest.TestCase):
         o.seed_elements(lon=4.75, lat=60, number=10,
                         time=[time, time + timedelta(hours=6)],
                         origin_marker=8)
-        o.set_config('environment:fallback:land_binary_mask', 0)
-        o.set_config('environment:fallback:y_sea_water_velocity', 1)
         o.run(duration=timedelta(hours=3))
         self.assertEqual(o.history.shape[0], 10)
         self.assertEqual(o.history.shape[1], 4)
@@ -825,12 +844,12 @@ class TestRun(unittest.TestCase):
         o = OceanDrift(loglevel=20)
         # deactivate elements after 3 hours
         o.set_config('drift:max_age_seconds', 3600*3)
+        o.set_config('environment:fallback:land_binary_mask', 0)
         norkyst = reader_netCDF_CF_generic.Reader(o.test_data_folder() + '14Jan2016_NorKyst_z_3d/NorKyst-800m_ZDEPTHS_his_00_3Dsubset.nc')
         o.add_reader(norkyst)
         # seed two elements at 6 hour interval
         o.seed_elements(number=2, lon=4, lat=62,
             time=[norkyst.start_time, norkyst.start_time+timedelta(hours=6)])
-        o.set_config('environment:fallback:land_binary_mask', 0)
         o.run(duration=timedelta(hours=8), outfile='test.nc')
         os.remove('test.nc')
         # Check that simulations has run until scheduled end

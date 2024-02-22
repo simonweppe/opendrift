@@ -16,7 +16,7 @@
 
 import logging; logging.captureWarnings(True); logger = logging.getLogger(__name__)
 from opendrift.readers.basereader import BaseReader
-from opendrift.readers import reader_from_url
+from opendrift.readers import reader_from_url, reader_netCDF_CF_generic
 
 
 class Reader:
@@ -28,7 +28,13 @@ class Reader:
         self._args = args
         self._kwargs = kwargs
         self.initialised = False
-        self._lazyname = 'LazyReader: ' + args[0]
+
+        # Interpret if argument is a string (url, filename) or a prepared dataset
+        if isinstance(args[0], str):
+            self._lazyname = 'LazyReader: ' + args[0]
+        else:
+            self._lazyname = 'LazyReader: ' + kwargs['name']
+            self._dataset = args[0]
         logger.debug('Delaying initialisation of ' + self._lazyname)
 
     def __getattr__(self, name):
@@ -49,7 +55,15 @@ class Reader:
 
     def initialise(self):
         logger.debug('Initialising: ' + self._lazyname)
-        self.reader = reader_from_url(self._args[0])
+        self.reader = None
+
+        # Zarr is a special case, handle netCDF_CF_generic a prepared dataset and credentials
+        if 'zarr_credentials' in self._kwargs:
+            logger.debug('Lazy reader seems to be zarr, calling reader_netCDF_CF_generic')
+            self.reader = reader_netCDF_CF_generic.Reader(filename=self._dataset, zarr_storage_options=self._kwargs['zarr_credentials'], name=self._lazyname)
+        else:
+            self.reader = reader_from_url(self._args[0])
+
         if self.reader is None:
             raise ValueError('Reader could not be initialised')
         else:

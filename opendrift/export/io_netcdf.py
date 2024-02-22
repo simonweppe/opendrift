@@ -7,6 +7,7 @@ from shutil import move
 
 import numpy as np
 from netCDF4 import Dataset, num2date, date2num
+from opendrift.models.basemodel import Mode
 
 # Module with functions to export/import trajectory data to/from netCDF file
 # Strives to be compliant with netCDF CF-convention on trajectories
@@ -38,7 +39,7 @@ def init(self, filename):
     self.outfile.model_url = 'https://github.com/OpenDrift/opendrift'
     self.outfile.opendrift_class = self.__class__.__name__
     self.outfile.opendrift_module = self.__class__.__module__
-    self.outfile.readers = str(self.readers.keys())
+    self.outfile.readers = str(self.env.readers.keys())
     self.outfile.time_coverage_start = str(self.start_time)
     self.outfile.time_step_calculation = str(self.time_step)
     self.outfile.time_step_output = str(self.time_step_output)
@@ -160,8 +161,7 @@ def close(self):
     self.outfile.geospatial_lon_max = self.history['lon'].max()
     self.outfile.geospatial_lon_units = 'degrees_east'
     self.outfile.geospatial_lon_resolution = 'point'
-    self.outfile.runtime = str(datetime.now() -
-                               self.timers['total time'])
+    self.outfile.runtime = str(self.timing['total time'])
 
     self.outfile.close()  # Finally close file
 
@@ -210,11 +210,13 @@ def close(self):
         print(me)
         print('Could not convert netCDF file from unlimited to fixed dimension. Could be due to netCDF library incompatibility(?)')
 
-def import_file_xarray(self, filename, chunks):
+def import_file_xarray(self, filename, chunks, elements=None):
 
     import xarray as xr
     logger.debug('Importing with Xarray from ' + filename)
     self.ds = xr.open_dataset(filename, chunks=chunks)
+    if elements is not None:
+        self.ds = self.ds.isel(trajectory=elements)
 
     self.steps_output = len(self.ds.time)
     ts0 = (self.ds.time[0] - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
@@ -257,6 +259,8 @@ def import_file_xarray(self, filename, chunks):
         self.latmin = np.float32(self.ds.lat.minval)
         self.lonmax = np.float32(self.ds.lon.maxval)
         self.latmax = np.float32(self.ds.lat.maxval)
+
+    self.mode = Mode.Result
 
 def import_file(self, filename, times=None, elements=None, load_history=True):
     """Create OpenDrift object from imported file.
@@ -350,6 +354,7 @@ def import_file(self, filename, times=None, elements=None, load_history=True):
 
     # Import and apply config settings
     attributes = infile.ncattrs()
+    self.mode = Mode.Config  # To allow setting config
     for attr in attributes:
         if attr.startswith('config_'):
             value = infile.getncattr(attr)
@@ -364,9 +369,11 @@ def import_file(self, filename, times=None, elements=None, load_history=True):
                 self.set_config(conf_key, value)
                 logger.debug('Setting imported config: %s -> %s' %
                              (conf_key, value))
-            except:
+            except Exception as e:
+                logger.warning(e)
                 logger.warning('Could not set config: %s -> %s' %
                                 (conf_key, value))
+    self.mode = Mode.Result
 
     # Import time steps from metadata
     def timedelta_from_string(timestring):
