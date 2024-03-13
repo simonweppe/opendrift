@@ -128,6 +128,7 @@ class Reader(BaseReader,UnstructuredReader):
             else:
                 logger.info('Opening file with open_dataset')
                 self.dataset = xr.open_dataset(filestr,chunks={'time': 1})
+            # need to edit the cons name for correct use in oceantide later on
             self.dataset['con']=[x.strip().upper() for x in self.dataset['cons'].values]
 
         except Exception as e:
@@ -135,6 +136,13 @@ class Reader(BaseReader,UnstructuredReader):
 
         # Define projection of input data - will always be lon/lat
         self.proj4 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' #'+proj=latlong'
+        
+        # self.always_valid = True  >> this disables both time and spatial checks so not good
+        # 
+        # use dummy start/end times instead, to make it always valid time-wise
+        # maybe we 
+        self.start_time = datetime(1000,1,1) 
+        self.end_time = datetime(3000,1,1) 
 
         # if proj4 is not None: #  user has provided a projection apriori
         #     self.proj4 = proj4
@@ -394,6 +402,9 @@ class Reader(BaseReader,UnstructuredReader):
         from scipy.spatial import ConvexHull # convex hull of grid points
         from matplotlib.path import Path # convex hull of grid points
         # 
+        # >> we could use actual polygon as it's saved in the file 
+        # 
+        # 
         # Build a polygon of the boundary of the mesh, for in-grid checks
         # 
         # simple approximation : use convex hull of mesh nodes. This will correctly include the open boundary
@@ -407,6 +418,7 @@ class Reader(BaseReader,UnstructuredReader):
         hull_obj = ConvexHull(np.vstack([x,y]).T)
         hull_path = Path(np.vstack([x[hull_obj.vertices],y[hull_obj.vertices]]).T)  # Matplotlib Path object
         hull = np.vstack([x[hull_obj.vertices],y[hull_obj.vertices]]).T
+        import pdb;pdb.set_trace()
         return hull_path # Matplotlib Path object
   
     def get_variables(self, requested_variables, time=None,
@@ -432,7 +444,7 @@ class Reader(BaseReader,UnstructuredReader):
             
             Speed gain to be tested ...
         """
-
+        print(time)
         requested_variables, time, x, y, z, outside = \
             self.check_arguments(requested_variables, time, x, y, z)
 
@@ -445,66 +457,53 @@ class Reader(BaseReader,UnstructuredReader):
         variables = {'x': self.x, 'y': self.y, 'z': 0.*self.y,
                      'time': nearestTime}
         
-        import pdb;pdb.set_trace()
-        # extracts the full slices of requested_variables at time indxTime
+        
+        # generate the full variable slices of requested_variables at time indxTime
+
+        # if tidal velocities are requested, we generate the flow field for that time
+        if 'x_sea_water_velocity' in requested_variables:
+            tide_pred = self.dataset.tide.predict(times=time)
+
         for par in requested_variables:
-            if par not in ['x_sea_water_velocity','y_sea_water_velocity','land_binary_mask','x_wind','y_wind'] :
-                # standard case - for all variables except vectors such as current, wind, etc..
-                var = self.dataset.variables[self.variable_mapping[par]]
-                if var.ndim == 1:
+            var = self.dataset.variables[self.variable_mapping[par]]
+            # there are only 4 <requested_variables> options 
+            if par is 'sea_floor_depth_below_sea_level':
+                if var.ndim == 1: # time-independent variable
                     data = var[:] # e.g. depth
-                    logger.debug('reading constant data from unstructured reader %s' % (par))
-                elif var.ndim == 2: 
-                    data = var[indxTime,:] # e.g. 2D temperature
-                    logger.debug('reading 2D data from unstructured reader %s' % (par))
-                elif var.ndim == 3:
-                    data = var[indxTime,:,:] # e.g. 3D salt [time,node,lev]
-                    logger.debug('reading 3D data from unstructured reader %s' % (par))
-                    # convert 3D data matrix to one column array and define corresponding data coordinates [x,y,z]
-                    # (+ update variables dictionary with 3d coords if needed)
-                    data,variables = self.convert_3d_to_array(indxTime,data,variables)
-                else:
-                    raise ValueError('Wrong dimension of %s: %i' %
-                                     (self.variable_mapping[par], var.ndim))
-            elif par in ['x_sea_water_velocity','y_sea_water_velocity','x_wind','y_wind'] :
-                # requested variables are vectors : current or wind velocities
-                # In SCHISM netcdf files, both [u,v] components are saved 
-                # as two different dimensions of the same variable.
-                var = self.dataset.variables[self.variable_mapping[par]]
-                if var.ndim == 3: # depth-averaged current data 'dahv', or 'wind_speed' defined at each node and time [time,node,2]
-                    if par in ['x_sea_water_velocity','x_wind']:
-                       data = var[indxTime,:,0]
-                    elif par in ['y_sea_water_velocity','y_wind']:
-                       data = var[indxTime,:,1] 
-                    logger.debug('reading 2D velocity data from unstructured reader %s' % (par))
+                    logger.debug('reading constant data from unstructured reader %s' % (par))    
+            elif par is 'x_sea_water_velocity':
+                # data = var[indxTime,:]
+                data = tide_pred.u
+                logger.debug('reading 2D data from unstructured reader %s' % (par))
+            elif par is 'y_sea_water_velocity':
+                # data = var[indxTime,:] # e.g. 2D temperature
+                data = tide_pred.v
+                logger.debug('reading 2D data from unstructured reader %s' % (par))
+            elif par is 'sea_surface_height':
+                # data = var[indxTime,:] # e.g. 2D temperature
+                data = tide_pred.h
+                logger.debug('reading 2D data from unstructured reader %s' % (par))
+            else:
+                raise ValueError('Wrong dimension of %s: %i' %
+                                    (self.variable_mapping[par], var.ndim))
 
-                elif var.ndim == 4: # #3D current data 'hvel' defined at each node, level, and time [time,node,zcor,2]
-                    if par == 'x_sea_water_velocity':
-                       data = var[indxTime,:,:,0]   #hvel dimensions : [time,node,lev,2]
-                    elif par == 'y_sea_water_velocity':
-                       data = var[indxTime,:,:,1] #hvel dimensions : [time,node,lev,2]
-                    logger.debug('reading 3D velocity data from unstructured reader %s' % (par))
-
-                    # convert 3D data matrix to one column array and define corresponding data coordinates [x,y,z]
-                    # (+ update variables dictionary with 3d coords if needed)
-                    data,variables = self.convert_3d_to_array(indxTime,data,variables)
-
-            elif (par in ['land_binary_mask']) & (self.use_model_landmask) :
-                dry_elem = self.dataset.variables[self.variable_mapping[par]][indxTime,:] # dry_elem =1 if dry, 0 if wet, for each element face
-                # find indices of nodes making up the dry elements
-                if len(self.dataset['SCHISM_hgrid_face_nodes'].shape) == 3:
-                    # when using open_mfdataset, the variable is expanded along time dimension, hence use of indxTime shape = (nb_time,nb_elem,4)
-                    node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][indxTime,dry_elem.values.astype('bool'),:]) # id of nodes making up each element 
-                else:
-                    node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][dry_elem.values.astype('bool'),:]) # id of nodes making up each elements shape = (nb_elem,4)
-                # remove nans, and keep unique indices
-                node_id = np.unique(node_id[~np.isnan(node_id)]) - 1 # add <-1> to convert node index rather than absolute number
-                data = 0.0*self.x # build array, same size as node
-                data[node_id.astype(int)] = 1.0 # set dry nodes to one to be used as 'land_binary_mask'
+            # elif (par in ['land_binary_mask']) & (self.use_model_landmask) :
+            #     dry_elem = self.dataset.variables[self.variable_mapping[par]][indxTime,:] # dry_elem =1 if dry, 0 if wet, for each element face
+            #     # find indices of nodes making up the dry elements
+            #     if len(self.dataset['SCHISM_hgrid_face_nodes'].shape) == 3:
+            #         # when using open_mfdataset, the variable is expanded along time dimension, hence use of indxTime shape = (nb_time,nb_elem,4)
+            #         node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][indxTime,dry_elem.values.astype('bool'),:]) # id of nodes making up each element 
+            #     else:
+            #         node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][dry_elem.values.astype('bool'),:]) # id of nodes making up each elements shape = (nb_elem,4)
+            #     # remove nans, and keep unique indices
+            #     node_id = np.unique(node_id[~np.isnan(node_id)]) - 1 # add <-1> to convert node index rather than absolute number
+            #     data = 0.0*self.x # build array, same size as node
+            #     data[node_id.astype(int)] = 1.0 # set dry nodes to one to be used as 'land_binary_mask'
 
             variables[par] = data # save all data slice to dictionary with key 'par'
             # Store coordinates of returned points
             #  >> done in previous steps here, line 380 and in convert_3d_to_array()
+
             variables[par] = np.asarray(variables[par])
 
         self.use_subset = False # Functionnal now  - need to check results are consistent.
@@ -674,6 +673,33 @@ class Reader(BaseReader,UnstructuredReader):
                                                          kernel[:, :, None],
                                                          mode='nearest')
         return env
+    
+
+    def nearest_time(self, time):
+        """ overloads version from variables.py
+        
+        Original function : Return nearest times before and after the requested time.
+
+        Here : we return the input time as nearest time as tide can be generated for any time
+        Note this will not lead to interpolation in _get_variables_interpolated_()
+        as the "right on time" case will be identified
+
+        Returns:
+            nearest_time: datetime
+            time_before: datetime
+            time_after: datetime
+            indx_nearest: int
+            indx_before: int
+            indx_after: int
+        """
+        nearest_time = time
+        time_before = time
+        time_after =time
+        indx_nearest, indx_before, indx_after = None,None,None # these are not used in get_variables()
+        return nearest_time, time_before, time_after,\
+            indx_nearest, indx_before, indx_after
+
+
 
     def _get_variables_interpolated_(self, variables, profiles,
                                    profiles_depth, time,
@@ -707,7 +733,6 @@ class Reader(BaseReader,UnstructuredReader):
            The function returns environment data 'env' interpolated at particle positions [x,y] 
 
         """
-
         # block = False # legacy stuff 
 
         # Find reader time_before/time_after
