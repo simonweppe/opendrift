@@ -16,44 +16,17 @@
 
 
 ##########################################################################
-# WORK IN PROGRESS 
+# This reader supports unstructured tidal constituent grid from
+# Oceanum's Datamesh. https://docs.oceanum.io/datamesh/index.html
+# Gridded fields of elev, u, v are reconstructed at each timestep 
+# using the python package oceantide (https://github.com/oceanum/oceantide/)
 # 
-# Starting from schism_native reader to make a reader able to read directly 
-# the constituents files from Oceanum's datamesh
 # 
-# We approach this by generating gridded fields of elev, u, v at each timestep
-# from a consitutent grid, using the python package oceantide
+# To test : interpolation of constituents to particle position rather
+# than generating full grid then interpolating from that 
 # 
+# Author: Simon Weppe. Calypso Science New Zealand
 ##########################################################################
-
-##########################################################################
-# This reader supports native SCHISM output netcdf files and will 
-# handle interpolation of current velocities and other variables
-# in 2D and 3D.
-# The interpolation is done using a cKDtree-approach defined
-# form the 2D or 3D mesh nodes
-# 
-# Author: Simon Weppe. MetOcean Solution, MetService New Zealand
-##########################################################################
-
-##########################################################################
-# This version aims to be more consistent with the new Opendrift release, 
-# and re-uses some of the methods in unstructured.py, and better follow 
-# the new logics
-# 
-# Note the interpolation approach is closer to what is done in 
-# structured.py with cached reader "blocks" that are re-used for 
-# successive interpolation between two model time steps. 
-# unstructured.py instead read data at each interpolation cycle
-# 
-# 
-# Ongoing work on speed improvements....
-# 
-#   - consider using pykdtree (https://github.com/storpipfugl/pykdtree)
-#     for faster KDtree computations - test efficiency
-# 
-##########################################################################
-
 
 import logging
 logger = logging.getLogger(__name__)
@@ -72,24 +45,22 @@ import xarray as xr
 import shapely
 import oceantide
 
-
 class Reader(BaseReader,UnstructuredReader):
 
-    def __init__(self, filename=None, name=None, proj4=None, use_mesh_landmask = True,**kwargs):
+    def __init__(self, filename=None, name=None, use_mesh_polygon = True,**kwargs):
         """Initialise reader_netCDF_CF_unstructured_SCHISM
 
         Args:
-            filename    :   name of SCHISM netcdf file (can have wildcards)
+            filename    :   name of unstructured constituent grid from Oceanum's Datamesh
 
             name        :   name of reader - optional, taken as filename if not input
                             o.readers['name']
             
-            use_mesh_landmask : Switch to use the native mesh landmask - True by default
+            use_mesh_polygon : Switch to use the mesh polygon saved in constituent grid file True by default
 
-            kwargs      : shore_file , allows adding a shoreline file that will be used alongside model 
-                          landmask to flag particles on land in _get_variables_interpolated_()
-                          Required in some cases to avoid particles going on land
-                          Note this file should be one or several closed polygon(s) reprensenting land area
+            kwargs      : use_log_profile : use log profile to extrpolate current at any level in water column.
+                          z0 : roughness height in meters (default 0.0001m for sandy areas)
+
         """
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
@@ -109,7 +80,7 @@ class Reader(BaseReader,UnstructuredReader):
             'v': 'y_sea_water_velocity',
             'dep': 'sea_floor_depth_below_sea_level',
             'h' : 'sea_surface_height',
-            'island': 'land_binary_mask',}
+            'dep': 'land_binary_mask',}
 
         self.return_block = True
 
@@ -131,51 +102,10 @@ class Reader(BaseReader,UnstructuredReader):
         # Define projection of input data - will always be lon/lat
         self.proj4 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' #'+proj=latlong'
         
-        # self.always_valid = True  >> this disables both time and spatial checks so not good
-        # 
         # use dummy start/end times instead, to make it always valid time-wise
         self.start_time = datetime(1000,1,1) 
         self.end_time = datetime(3000,1,1) 
-
-        # still unsure if it is more efficient to generate a large datacube at beginning of simulation
-        # or make distinct prediction at each time step 
         
-
-
-        # if proj4 is not None: #  user has provided a projection apriori
-        #     self.proj4 = proj4
-        #     import pdb;pdb.set_trace()
-        #     # this should not happen 
-        # else:
-        #     # proj4 = None >> no input assumes latlon. It should be always the case
-        #     logger.debug('Lon and lat are 1D arrays, assuming latlong projection: proj4 = ''+proj=latlong''')
-        #     self.proj4 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' #'+proj=latlong'
-
-        # check if 3d data is available and if we should use it
-        
-        # 3d not relevant for tides
-        # self.use_3d = use_3d
-        # if self.use_3d is None : # not specified, use 3d data by default (if available)
-        #     if 'hvel' in self.dataset.variables:
-        #         self.use_3d = True
-        #     else:
-        #         self.use_3d = False
-
-        # if self.use_3d and 'hvel' not in self.dataset.variables:
-        #     logger.debug('No 3D velocity data in file - cannot find variable ''hvel'' ')
-        # elif self.use_3d and 'hvel' in self.dataset.variables:
-        #     if 'zcor' in self.dataset.variables: # both hvel and zcor in files - all good
-        #         self.nb_levels = self.dataset.variables['hvel'].shape[2] #hvel dimensions : [time,node,lev,2]
-        #     else:
-        #         logger.debug('No vertical level information present in file ''zcor'' ... stopping')
-        #         raise ValueError('variable ''zcor'' must be present in netcdf file to be able to use 3D currents')
-        
-        # set options for particles on-land check, using model landmask or not 
-        # 
-        # >> this wont happen either
-        # below not relevant , comment for now
-        #  
-
         logger.debug('Finding coordinate variables.')
         # Find x, y and z coordinates
         for var_name in self.dataset.variables:
@@ -303,28 +233,22 @@ class Reader(BaseReader,UnstructuredReader):
         logger.debug('Building mesh boundary and interior islands for in-mesh checks')
         self.boundary,self.boundary_with_islands  = self._build_boundary_polygon_(self.x,self.y)
 
-        self.use_mesh_landmask = use_mesh_landmask
-        if self.use_mesh_landmask : 
+        self.use_mesh_polygon = use_mesh_polygon
+        if self.use_mesh_polygon : 
+            logger.debug('Using mesh polygon saved in constituent grid for on-land particles checks')
+            self.mesh_polygon =  self.boundary_with_islands # prepared geometry to be used for in-poly checks
 
-            import pdb;pdb.set_trace()
-            >> see what was done for schism_native_reader and do the same, using 
-            self.boundary_with_islands most likely 
-            may be as simple as this : or we may have to invert it ..or invert the boolean we get ? 
-            if it's not within the "wet" part of the mesh ..then it's out 
-
-            check using : 
-            shapely.prepared.prep(self.boundary_with_islands) to check using 
-            from shapely.vectorized import contains
-            return contains(self.boundary, x, y) as in covers_positions()
-            on_shore_landmask = shapely.vectorized.contains(self.shore_landmask, lon_tmp, lat_tmp)
-
-            
-        #     logger.debug('Using time-varying landmask from SCHISM for on-land particles checks (wetdry_elem variable) ')
-        #     if 'shore_file' in kwargs:
-        #         logger.debug('Also adding static shoreline file %s for additionnal on-land particles' %  kwargs['shore_file'])
-        #         self.shore_file = kwargs['shore_file']
-        #         self.shore_landmask = self.load_shoreline_landmask() # add self.shore_landmask as prepared geometry
-
+        if 'use_log_profile' in kwargs:
+            self.use_log_profile = kwargs['use_log_profile']
+            if self.use_log_profile :
+                
+                if 'z0' in kwargs:
+                    self.z0 = kwargs['z0']
+                else:
+                    self.z0 = 0.0001 # default
+                logger.debug('Using log profile for current extrapolation in water column, with roughness height %s' % self.z0)
+        else:
+            self.use_log_profile = False
 
         # by default we activate the derivation of land_binary_mask from 'sea_floor_depth_below_sea_level
         # https://github.com/OpenDrift/opendrift/blob/master/opendrift/readers/basereader/variables.py#L443
@@ -364,33 +288,31 @@ class Reader(BaseReader,UnstructuredReader):
     
     def _build_boundary_polygon_(self, x, y):
         """
-        Build a polygon of the boundary of the mesh and interior islands (i.e. as holes)
+        The methods builds 2 polygons to be used :
+            - to check if particles are within mesh outer boundary (to decide if we used this dataset as driver) 
+            - to check if particles are within mesh and not on interior islands (defined as holes)
         
         This version overloads version in unstructured.py
 
         We use the boundary information saved in the cons file
         to build the geometry instead of using an approximation 
-        with the convex hull.
+        with the convex hull as in reader_schism_native.py
 
-        ************
-        it may be better to define a landmask as vectorized polygon as is done 
-        in reader_native_schism.py using a shore_landmask
-        because adding the islands to the boundary polyons mean that particles ending up on an island 
-        will become out of bounds in covers_positions() (in unstructured.py) rather than on-land ?
+        The outer boundary mesh polygon will be used in covers_positions() while the polygons with islands
+        will be used for coastlines intersection checks.
 
-        So a better option is to use a shorelandmask as in reader_native_schism.py ...
-        BUT that means a particle reaching the outer boundary may be flagged as beached rather than outside ?
-        >> maybe not of the covers_positions is done after the beaching checks 
-        ***********
+        To double check > will a particle become "beached" if it crosses the mesh open boundary ? 
+        or will the covers_positions will correctly flag it as out-of-bounds ?
 
         Arguments:
             :param x: Array of node x position, lenght N
             :param y: Array of node y position, length N
 
         Returns:
-            A `shapely.prepareped.prep` `shapely.Polygon`.
+            Two `shapely.prepared.prep` `shapely.Polygon`.
 
-            The boundary of the mesh, including holes in the mesh.
+            A polygon defining the outer boundary of the mesh only, and
+            a polygon defining the outer boundary of the mesh AND including holes for islands.
 
         """
         from shapely.geometry import Polygon
@@ -408,20 +330,27 @@ class Reader(BaseReader,UnstructuredReader):
             poly_i = np.vstack((x[id_island_i],y[id_island_i])).T
             island_polys.append(poly_i)
         
-        if False: # check plot
+        # make some prepared geometries for in-polys checks
+        boundary = Polygon(mesh_poly) # to be used in covers_positions (does not include the islands)
+        boundary = prep(Polygon(boundary))
+
+        boundary_with_islands = Polygon(mesh_poly,holes = island_polys) # to be used as landmask (includes islands)
+        boundary_with_islands = prep(Polygon(boundary_with_islands))
+        
+        if False: # check plot, and test in-polys checks
+            from shapely.vectorized import contains
             import matplotlib.pyplot as plt
             plt.ion();plt.show()
             plt.plot(mesh_poly[:,0],mesh_poly[:,1])
             for isl in island_polys:plt.plot(isl[:,0],isl[:,1]) 
+            xy=plt.ginput(10)
+            isin = contains(boundary_with_islands, np.array(xy)[:,0], np.array(xy)[:,1])
+            plt.plot(np.array(xy)[isin,0],np.array(xy)[isin,1],'ro')
+            plt.plot(np.array(xy)[~isin,0],np.array(xy)[~isin,1],'go')
             import pdb;pdb.set_trace()
 
-        boundary = Polygon(mesh_poly) # dont use the islands here
-        boundary = prep(Polygon(boundary))
-
-        boundary_with_islands = Polygon(mesh_poly,holes = island_polys) # to be used as landmask
-        boundary_with_islands = prep(Polygon(boundary_with_islands))
-
         return boundary,boundary_with_islands
+        
 
     def get_variables(self, requested_variables, time=None,
                       x=None, y=None, z=None, block=False):
@@ -459,7 +388,6 @@ class Reader(BaseReader,UnstructuredReader):
         variables = {'x': self.x, 'y': self.y, 'z': 0.*self.y,
                      'time': nearestTime}
         
-        
         # generate the full variable slices of requested_variables at time indxTime
 
         # if tidal velocities are requested, we generate the flow field for that time
@@ -474,33 +402,20 @@ class Reader(BaseReader,UnstructuredReader):
                     data = var[:] # e.g. depth
                     logger.debug('reading constant data from unstructured reader %s' % (par))    
             elif par is 'x_sea_water_velocity':
-                # data = var[indxTime,:]
                 data = tide_pred.u
                 logger.debug('reading 2D data from unstructured reader %s' % (par))
             elif par is 'y_sea_water_velocity':
                 # data = var[indxTime,:] # e.g. 2D temperature
-                data = tide_pred.v
                 logger.debug('reading 2D data from unstructured reader %s' % (par))
             elif par is 'sea_surface_height':
-                # data = var[indxTime,:] # e.g. 2D temperature
                 data = tide_pred.h
                 logger.debug('reading 2D data from unstructured reader %s' % (par))
+            elif par is 'land_binary_mask':
+                data = 0*var # allocate with 0 for now, check will be done using self.mesh_polygon
+                logger.debug('reading 2D data from unstructured reader %s (set all to 0)' % (par))
             else:
                 raise ValueError('Wrong dimension of %s: %i' %
                                     (self.variable_mapping[par], var.ndim))
-
-            # elif (par in ['land_binary_mask']) & (self.use_mesh_landmask) :
-            #     dry_elem = self.dataset.variables[self.variable_mapping[par]][indxTime,:] # dry_elem =1 if dry, 0 if wet, for each element face
-            #     # find indices of nodes making up the dry elements
-            #     if len(self.dataset['SCHISM_hgrid_face_nodes'].shape) == 3:
-            #         # when using open_mfdataset, the variable is expanded along time dimension, hence use of indxTime shape = (nb_time,nb_elem,4)
-            #         node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][indxTime,dry_elem.values.astype('bool'),:]) # id of nodes making up each element 
-            #     else:
-            #         node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][dry_elem.values.astype('bool'),:]) # id of nodes making up each elements shape = (nb_elem,4)
-            #     # remove nans, and keep unique indices
-            #     node_id = np.unique(node_id[~np.isnan(node_id)]) - 1 # add <-1> to convert node index rather than absolute number
-            #     data = 0.0*self.x # build array, same size as node
-            #     data[node_id.astype(int)] = 1.0 # set dry nodes to one to be used as 'land_binary_mask'
 
             variables[par] = data # save all data slice to dictionary with key 'par'
             # Store coordinates of returned points
@@ -515,64 +430,6 @@ class Reader(BaseReader,UnstructuredReader):
             self.reader_KDtree = cKDTree(np.vstack((variables['x'],variables['y'])).T) 
             # the 3D KDtree in updated within ReaderBlockUnstruct()
         return variables 
-
-
-    def convert_3d_to_array(self,id_time,data,variable_dict):
-        ''' 
-        The function reshapes a data matrix of dimensions = [node,vertical_levels] (i.e. data at vertical levels, at given time step) 
-        into a one-column array and works out corresponding 3d coordinates [lon,lat,z] using the time-varying
-        'zcor' variable in SCHISM files (i.e. vertical level positions). 
-
-        These 3D coordinates will be used to build the 3D KDtree for data interpolation and will be added to the 'variable_dict' 
-        which is eventually passed to get_variables_interpolated().
-
-        args:
-            -id_time
-            -data
-            -variable_dict
-        out :
-            -flattened 'data' array
-            -addition of ['x_3d','y_3d','z_3d'] items to variable_dict if needed.
-        '''
-
-        try:
-            vertical_levels = self.dataset.variables['zcor'][id_time,:,:]
-            # depth are negative down consistent with convention used in OpenDrift 
-            # if using the netCDF4 library, vertical_levels is masked array where "masked" levels are those below seabed  (= 9.9692100e+36)
-            # if using the xarray library, vertical_levels is nan for levels are those below seabed
-
-            # convert to masked array to be consistent with what netCDF4 lib returns
-            vertical_levels = np.ma.array(vertical_levels, mask = np.isnan(vertical_levels.data)) 
-            data = np.asarray(data)
-            # vertical_levels.mask = np.isnan(vertical_levels.data) # masked using nan's when using xarray
-        except:
-            logger.debug('no vertical level information present in file ''zcor'' ... stopping')
-            raise ValueError('variable ''zcor'' must be present in netcdf file to be able to use 3D currents')
-        # flatten 3D data 
-        data = np.ravel(data[~vertical_levels.mask])
-
-        # add corresponding 3D coordinates to the 'variable_dict' which is eventually passed to get_variables_interpolated()
-        # Note: these 3d coordinates will be the same for all 3d data (current,salt/temp etc..), and will change at each reader time step
-        # They are saved as ['x_3d','y_3d','z_3d'] rather than ['x','y','z'] as it would break things when both 2d and 3d data are requested.
-        if 'z_3d' not in variable_dict.keys():
-            # now make a long 3-column array [lon,lat,z] [n_nodes x  3] at which 'data' is defined
-            # tile lon/lat data so that array shape match vertical_levels shape
-            x_tiled = np.tile(self.x,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
-            y_tiled = np.tile(self.y,(self.nb_levels,1)).T
-            # lon_tiled = np.tile(self.lon,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
-            # lat_tiled = np.tile(self.lat,(self.nb_levels,1)).T
-            # arrays are tiled so that lon_tiled[0,:] = return same value i.e. same lon/lat for all z levels 
-            if x_tiled.shape != vertical_levels.shape:
-                import pdb;pdb.set_trace()
-            # convert to masked array consistent with vertical_levels
-            x_tiled_ma = np.ma.array(x_tiled, mask = vertical_levels.mask) 
-            y_tiled_ma = np.ma.array(y_tiled, mask = vertical_levels.mask)
-            # flatten arrays and add to dictionary
-            variable_dict['x_3d'] = np.ravel(x_tiled_ma[~vertical_levels.mask]) 
-            variable_dict['y_3d'] = np.ravel(y_tiled_ma[~vertical_levels.mask])
-            variable_dict['z_3d'] = np.ravel(vertical_levels[~vertical_levels.mask])
-
-        return data,variable_dict
 
     def clip_reader_data(self,variables_dict, x_particle,y_particle,requested_variables=None):
         # clip "variables_dict" to current particle cloud extents [x_particle,y_particle] (+ buffer)
@@ -947,20 +804,24 @@ class Reader(BaseReader,UnstructuredReader):
 
         # apply log profile if we are interpolating 2D data for ['x_sea_water_velocity','y_sea_water_velocity']
         # not using for now
-        if False :
+        if self.use_log_profile :
             self.apply_logarithmic_current_profile(env,z)
          
-        # additional on-land checks using shore_landmask (if present)
-        if 'land_binary_mask' in env.keys() and self.use_mesh_landmask and hasattr(self,'shore_file'):
-            logger.debug('Updating land_binary_mask using shoreline landmask <%s> ' % self.shore_file)
+        # additional on-land checks using mesh_polygon (if present)
+        if 'land_binary_mask' in env.keys() and self.use_mesh_polygon : #and hasattr(self,'shore_file'):
+            logger.debug('Updating land_binary_mask using mesh polygon')
             lon_tmp,lat_tmp = self.xy2lonlat(reader_x,reader_y)
-            on_shore_landmask = shapely.vectorized.contains(self.shore_landmask, lon_tmp, lat_tmp) #checks if particle(s) are in land polys
-            # update the 'land_binary_mask' accounting for shoreline landmask
-            env['land_binary_mask'] = np.maximum(env['land_binary_mask'],on_shore_landmask.astype(float))
+            # check if particles are within mesh polygon (if False, they are on land)
+            in_mesh = shapely.vectorized.contains(self.mesh_polygon, lon_tmp, lat_tmp) 
+            # update the 'land_binary_mask' accounting for the in-mesh checks (land_binary_mask==1 if particles are on land) 
+            env['land_binary_mask'] = np.maximum(env['land_binary_mask'],np.invert(in_mesh).astype(float))
 
         # make sure dry points have zero velocities which is not always the case
         # we could also look at using depth and thresholds to flag other dry points ?
-        if 'land_binary_mask' in env.keys():
+        if 'land_binary_mask' in env.keys() and \
+            'x_sea_water_velocity' in env.keys() and \
+            env['land_binary_mask'].astype('bool').any():
+
             logger.debug('Setting [x_sea_water_velocity,y_sea_water_velocity] to zero at dry points')
             env['x_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
             env['y_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
@@ -1028,232 +889,6 @@ class Reader(BaseReader,UnstructuredReader):
         log_fac[np.where(part_z_above_seabed<=0)] = 1.0 # do not change velocity value
         return log_fac
     
-    def load_shoreline_landmask(self):
-        # load shoreline polygon is added by user,used for additional on-land checks
-        #  must be in wgs84
-        # see reader_landmask_custom.py
-        from shapely.geometry import Polygon, MultiPolygon, asPolygon
-        import shapely
-
-        shore = np.loadtxt(
-            self.shore_file)  # nan-delimited closed polygons for land and islands
-
-        # Loop through polygon to build MultiPolygon object
-        #
-        # make sure that start and end lines are [nan,nan] as well
-        if not np.isnan(shore[0, 0]):
-            shore = np.vstack(([np.nan, np.nan], shore))
-        if not np.isnan(shore[-1, 0]):
-            shore = np.vstack((shore, [np.nan, np.nan]))
-        id_nans = np.where(np.isnan(shore[:, 0]))[0]
-        poly = []
-        for cnt, _id_i in enumerate(id_nans[:-1]):
-            # The shapely.geometry.asShape() family of functions can be used to wrap Numpy coordinate arrays
-            # https://shapely.readthedocs.io/en/latest/manual.html
-            poly.append(
-                asPolygon(shore[id_nans[cnt] + 1:id_nans[cnt + 1] - 1, :]))
-        # We can pass multiple Polygon -objects into our MultiPolygon as a list
-        landmask = MultiPolygon(poly)
-        # check plot
-        # import matplotlib.pyplot as plt;plt.plot(landmask[0].exterior.xy[0],landmask[0].exterior.xy[1])
-        landmask = shapely.prepared.prep(landmask)
-        # self.shore_landmask = landmask
-        return landmask
-
-    def plot_mesh(self, variable=None, vmin=None, vmax=None,
-             filename=None, title=None, buffer=1, lscale='auto',plot_time = None):
-        """Plot geographical coverage of reader."""
-
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Polygon
-        import cartopy.crs as ccrs
-        import cartopy.feature as cfeature
-        # from opendrift_landmask_data import Landmask
-        import matplotlib.tri as mtri
-        fig = plt.figure()
-
-        if plot_time is None : 
-            plot_time = self.start_time
-
-        #####################################
-        # In Dev - plot unstructured mesh
-        # 
-        # To do 
-        #  - plot in correct cartopy projection, consistent with basereader.py plot()
-        #  - plot a given timestep for flows
-        #  - incorporate that to animation as in basemodel.py etc...
-        # 
-        #####################################
-        if False:
-            import pdb;pdb.set_trace()
-            import matplotlib.tri as mtri
-            from mpl_toolkits.mplot3d import Axes3D
-            X=self.dataset.variables['SCHISM_hgrid_node_x'][:]
-            Y=self.dataset.variables['SCHISM_hgrid_node_y'][:]
-            Z=self.dataset.variables['depth'][:]
-            face=self.dataset.variables['SCHISM_hgrid_face_nodes'][:,0:3]-1
-            # build triangulation
-            triang =mtri.Triangulation(X,Y, triangles=face, mask=None)
-            # quads=Triangulation(gr.x,gr.y,quads)
-            #
-            # plot the triangular mesh 
-            plt.triplot(triang) 
-            # plot the variable - here depth for now
-            plt.tricontourf(triang, Z)
-            # more complex 3D plots 
-            # ax = fig.add_subplot(1,1,1, projection='3d')
-            # ax.plot_trisurf(triang,Z, cmap='jet')
-            # or 
-            # from https://github.com/metocean/schism-public/blob/master/LSC/lsc.py
-            # tricon=ax.tricontourf(triang,Z,cmap='jet')
-            # ax.view_init(azim=-90, elev=90)
-            plt.ion()
-            plt.show()
-            import pdb;pdb.set_trace()
-        #####################################
-
-
-        corners = self.xy2lonlat([self.xmin, self.xmin, self.xmax, self.xmax],
-                                 [self.ymax, self.ymin, self.ymax, self.ymin])
-        lonmin = np.min(corners[0]) - buffer*2
-        lonmax = np.max(corners[0]) + buffer*2
-        latmin = np.min(corners[1]) - buffer
-        latmax = np.max(corners[1]) + buffer
-        latspan = latmax - latmin
-
-        # Initialise map
-        if latspan < 90:
-            # Stereographic projection centred on domain, if small domain
-            x0 = (self.xmin + self.xmax) / 2
-            y0 = (self.ymin + self.ymax) / 2
-            lon0, lat0 = self.xy2lonlat(x0, y0)
-            sp = ccrs.Stereographic(central_longitude=lon0[0], central_latitude=lat0[0])
-            ax = fig.add_subplot(1, 1, 1, projection=sp)
-            corners_stere = sp.transform_points(ccrs.PlateCarree(), np.array(corners[0]), np.array(corners[1]))
-        else:
-            # Global map if reader domain is large
-            sp = ccrs.Mercator()
-            ax = fig.add_subplot(1, 1, 1, projection=sp)
-            #map = Basemap(np.array(corners[0]).min(), -89,
-            #              np.array(corners[0]).max(), 89,
-            #              resolution='c', projection='cyl')
-
-        # GSHHS coastlines
-        f = cfeature.GSHHSFeature(scale=lscale, levels=[1],
-                                  facecolor=cfeature.COLORS['land'])
-        ax.add_geometries(
-            f.intersecting_geometries([lonmin, lonmax, latmin, latmax]),
-            ccrs.PlateCarree(),
-            facecolor=cfeature.COLORS['land'],
-            edgecolor='black')
-
-        gl = ax.gridlines(ccrs.PlateCarree())
-        gl.xlabels_top = False
-
-        # Get boundary
-        npoints = 10  # points per side
-        x = np.array([])
-        y = np.array([])
-        x = np.concatenate((x, np.linspace(self.xmin, self.xmax, npoints)))
-        y = np.concatenate((y, [self.ymin]*npoints))
-        x = np.concatenate((x, [self.xmax]*npoints))
-        y = np.concatenate((y, np.linspace(self.ymin, self.ymax, npoints)))
-        x = np.concatenate((x, np.linspace(self.xmax, self.xmin, npoints)))
-        y = np.concatenate((y, [self.ymax]*npoints))
-        x = np.concatenate((x, [self.xmin]*npoints))
-        y = np.concatenate((y, np.linspace(self.ymax, self.ymin, npoints)))
-        # from x/y vectors create a Patch to be added to map
-        lon, lat = self.xy2lonlat(x, y)
-        lat[lat>89] = 89.
-        lat[lat<-89] = -89.
-        p = sp.transform_points(ccrs.PlateCarree(), lon, lat)
-        xsp = p[:, 0]
-        ysp = p[:, 1]
-
-        if variable is None: # generic plot to check extents
-            boundary = Polygon(list(zip(xsp, ysp)), alpha=0.5, ec='k', fc='b',
-                               zorder=100)
-            ax.add_patch(boundary)
-            # add nodes
-            rx = np.array([self.xmin, self.xmax])
-            ry = np.array([self.ymin, self.ymax])
-            data = self.get_variables('sea_floor_depth_below_sea_level', plot_time,rx, ry, block=True)
-            rlon, rlat = self.xy2lonlat(data['x'], data['y']) # node coordinates
-            ax.plot(rlon,rlat, '.',transform=ccrs.PlateCarree())
-            # set extents
-            buf = (xsp.max()-xsp.min())*.1  # Some whitespace around polygon
-            buf = 0
-            try:
-                ax.set_extent([xsp.min()-buf, xsp.max()+buf, ysp.min()-buf, ysp.max()+buf], crs=sp)
-            except:
-                pass
-        if title is None:
-            plt.title(self.name)
-        else:
-            plt.title(title)
-        plt.xlabel('Time coverage: %s to %s' %
-                   (self.start_time, self.end_time))
-        
-
-        if variable is not None:
-            if len(variable) == 1: # simple scalar variable
-                variable = variable[0]
-                rx = np.array([self.xmin, self.xmax])
-                ry = np.array([self.ymin, self.ymax])
-                data = self.get_variables(variable, plot_time,rx, ry, block=True)
-                rlon, rlat = self.xy2lonlat(data['x'], data['y']) # node coordinates
-                data[variable] = np.ma.masked_invalid(data[variable])
-                # ax.plot(rlon,rlat, '.',transform=ccrs.PlateCarree())
-                face=self.dataset.variables['SCHISM_hgrid_face_nodes'][:,0:3]-1
-                # build triangulation
-                triang =mtri.Triangulation(rlon,rlat, triangles=face, mask=None)
-                # plot the variable 
-                ax.tricontourf(triang, data[variable],vmin=vmin, vmax=vmax, transform=ccrs.PlateCarree())
-                # add the triangular mesh - too slow
-                # ax.triplot(triang, transform=ccrs.PlateCarree()) 
-
-            elif len(variable)>1 and all('water' in var for var in variable):  # vector field variable = ['x_sea_water_velocity','y_sea_water_velocity']
-                rx = np.array([self.xmin, self.xmax])
-                ry = np.array([self.ymin, self.ymax])
-                data = self.get_variables(variable, plot_time,rx, ry, block=True)
-                rlon, rlat = self.xy2lonlat(data['x'], data['y']) # node coordinates
-                # data[variable] = np.ma.masked_invalid(data[variable])
-                # ax.plot(rlon,rlat, '.',transform=ccrs.PlateCarree())
-                face=self.dataset.variables['SCHISM_hgrid_face_nodes'][:,0:3]-1
-                # build triangulation
-                triang =mtri.Triangulation(rlon,rlat, triangles=face, mask=None)
-                if False:
-                    # plot the variable 
-                    ax.tricontourf(triang, data[variable],vmin=vmin, vmax=vmax, transform=ccrs.PlateCarree())
-                    # add the triangular mesh - too slow
-                    ax.triplot(triang, transform=ccrs.PlateCarree()) 
-
-                ax.quiver(rlon,rlat,data['x_sea_water_velocity'],data['y_sea_water_velocity'],np.sqrt(data['x_sea_water_velocity']**2 + data['y_sea_water_velocity']**2), transform=ccrs.PlateCarree() )
-
-            ax.set_extent([xsp.min()-.5, xsp.max()+.5, ysp.min()-.5, ysp.max()+.5], crs=sp)
-
-        try:  # Activate figure zooming
-            mng = plt.get_current_fig_manager()
-            mng.toolbar.zoom()
-        except:
-            pass
-        
-        import pdb;pdb.set_trace()
-
-        if filename is not None:
-            plt.savefig(filename)
-            plt.close()
-        else:
-            plt.ion()
-            plt.show()
-            import pdb;pdb.set_trace()
-            # 
-            # variable = ['sea_floor_depth_below_sea_level','x_sea_water_velocity','y_sea_water_velocity']
-            # data = self.get_variables(variable, self.start_time,rx, ry, block=True) # where variable = ['x_sea_water_velocity','y_sea_water_velocity']
-            # plt.quiver(rlon,rlat,data['x_sea_water_velocity']) #> check what's going here
-            # >>> try to add quiver to check flow fields and how they are interpolated over time
-            # >>> also consider adding the possibiltyy to overlay quiver+particle motions for the reader_netCDF_CF_generic structured
-
 ###########################
 # ReaderBlockUnstruct class
 ###########################
@@ -1532,56 +1167,3 @@ class ReaderBlockUnstruct():
             return True
         else:
             return False
-
-
-    # def covers_positions(self, lon, lat, z=0):
-    #     """Return indices of input points covered by reader.
-        
-    #     For an unstructured reader, this is done by checking that if particle positions are within the convex hull
-    #     of the mesh nodes. This means it is NOT using the true polygon bounding the mesh ..but this is generally good enough
-    #     to locate the outer boundary (which is often semi-circular). 
-    #     >> The convex hull will not be good for the shorelines though, but this is not critical since coast interaction 
-    #     will be handled by either by the landmask (read from file or using global_landmask) 
-    #     Data interpolation might be an issue for particles reaching the land, and not actually flagged as out-of-bounds...
-    #     To Check...
-
-    #     Better alternatives could be: 
-    #         - get the true mesh polygon from netCDF files..doesnt seem to be available.
-    #         - compute an alpha-shape of mesh nodes (i.e. enveloppe) and use that as polygon. better than convexhull but not perfect 
-    #                 (shp = alphaShape(double(x),double(y),10000); work well in matlab for example)
-    #         - workout that outer mesh polygon from a cloud of points...maybe using a more evolved trimesh package ?
-
-    #     """        
-    #     # weird bug in which x,y become 1e30 sometimes...
-    #     # need to print stuff to make it work...
-
-    #     # Calculate x,y coordinates from lon,lat
-    #     print(lon.max()) # if I comment this...[x,y] may become 1e+30..have no idea why
-    #                      # it runs fine if I have that print statement ....
-    #     # print(lat.max())
-    #     x, y = self.lonlat2xy(lon, lat)      
-    #     # Only checking vertical coverage if zmin, zmax is defined
-    #     zmin = -np.inf
-    #     zmax = np.inf
-    #     if hasattr(self, 'zmin') and self.zmin is not None:
-    #         zmin = self.zmin
-    #     if hasattr(self, 'zmax') and self.zmax is not None:
-    #         zmax = self.zmax
-
-    #     # sometimes x,y will are = 1e30 at this stage..and have no idea why
-    #     # recomputing them below seems to fix the issue        
-    #     # x, y = self.lonlat2xy(lon, lat)
-
-    #     if self.global_coverage():
-    #         pass
-    #         # unlikely to be used for SCHISM domain
-    #     else:
-    #         # Option 1 : use the Path object (matplotlib) defined in __init__() : self.hull_path
-    #         # in_hull =self.hull_path.contains_points(np.vstack([x,y]).T)
-    #         # Option 2 : use the Prepared Polygon object
-    #         in_hull = UnstructuredReader.covers_positions(self,x, y, z)
-    #         indices = np.where(in_hull) 
-    #     try:
-    #         return indices, x[indices], y[indices]
-    #     except:
-    #         return indices, x, y    
