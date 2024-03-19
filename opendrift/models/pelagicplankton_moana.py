@@ -18,7 +18,7 @@
 # 
 # Module to simulate behaviour of Plankton, including phytoplankton (plants) and zooplankton (animals)
 #
-# Developed by Simon WeppeMetOcean/MetService NZ based on several sources to fit requirements for 
+# Developed by Simon Weppe (Calypso Science, NZ) based on several sources to fit requirements for 
 # use in MetOceanTrack model developped by MetOcean/MetService NZ as part of the Moana project 
 # (https://www.moanaproject.org/)
 # 

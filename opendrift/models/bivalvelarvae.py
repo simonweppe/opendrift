@@ -16,7 +16,7 @@
 #    > lift_elements_to_seafloor()
 #    > interact_with_coastline()
 # 
-#  Authors : Craig Norrie, Simon Weppe, Romain Chaput
+#  Authors : Craig Norrie, Simon Weppe (Calypso Science), Romain Chaput
 # 
 
 import numpy as np

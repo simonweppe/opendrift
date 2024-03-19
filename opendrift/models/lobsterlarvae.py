@@ -16,7 +16,7 @@
 #                       if close enough to the coast will swim to their settlement habitat. The pueruli have poorly 
 #                       developed mouth and rely on stored energy for the final stretch of their dispersal.
 # 
-#  Authors : Romain Chaput, University of Auckland, Simon Weppe MetOcean Solutions/MetService New Zealand
+#  Authors : Romain Chaput, University of Auckland, Simon Weppe, Calypso Science
 # 
 
 import numpy as np

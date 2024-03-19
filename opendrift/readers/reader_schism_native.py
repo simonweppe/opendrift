@@ -20,7 +20,7 @@
 # The interpolation is done using a cKDtree-approach defined
 # form the 2D or 3D mesh nodes
 # 
-# Author: Simon Weppe. MetOcean Solution, MetService New Zealand
+# Author: Simon Weppe. Calypso Science
 ##########################################################################
 
 ##########################################################################

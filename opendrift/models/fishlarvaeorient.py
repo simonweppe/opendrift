@@ -40,7 +40,7 @@
 # 
 #  Under development - first draft: 25/06/2021 - Last update: 17/08/2021
 # 
-#  Edits - Simon Weppe 11/2021 
+#  Edits - Simon Weppe (Calypso Science) 11/2021 
 # 
 
 import numpy as np
