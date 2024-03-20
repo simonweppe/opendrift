@@ -329,14 +329,11 @@ class Reader(BaseReader,UnstructuredReader):
             id_island_i = np.int64(self.dataset.island.isel(inum=ii).dropna(dim='inode'))
             poly_i = np.vstack((x[id_island_i],y[id_island_i])).T
             island_polys.append(poly_i)
-        
+
         # make some prepared geometries for in-polys checks
         boundary = Polygon(mesh_poly) # to be used in covers_positions (does not include the islands)
-        boundary = prep(Polygon(boundary))
-
         boundary_with_islands = Polygon(mesh_poly,holes = island_polys) # to be used as landmask (includes islands)
-        boundary_with_islands = prep(Polygon(boundary_with_islands))
-        
+
         if False: # check plot, and test in-polys checks
             from shapely.vectorized import contains
             import matplotlib.pyplot as plt
@@ -349,6 +346,9 @@ class Reader(BaseReader,UnstructuredReader):
             plt.plot(np.array(xy)[~isin,0],np.array(xy)[~isin,1],'go')
             import pdb;pdb.set_trace()
 
+        # convert to prepared geometries
+        boundary = prep(Polygon(boundary))
+        boundary_with_islands = prep(Polygon(boundary_with_islands))
         return boundary,boundary_with_islands
         
 
@@ -405,7 +405,7 @@ class Reader(BaseReader,UnstructuredReader):
                 data = tide_pred.u
                 logger.debug('reading 2D data from unstructured reader %s' % (par))
             elif par is 'y_sea_water_velocity':
-                # data = var[indxTime,:] # e.g. 2D temperature
+                data = tide_pred.v
                 logger.debug('reading 2D data from unstructured reader %s' % (par))
             elif par is 'sea_surface_height':
                 data = tide_pred.h
@@ -416,6 +416,14 @@ class Reader(BaseReader,UnstructuredReader):
             else:
                 raise ValueError('Wrong dimension of %s: %i' %
                                     (self.variable_mapping[par], var.ndim))
+            
+            if False:
+                import pdb;pdb.set_trace()
+                import matplotlib.pyplot as plt 
+                plt.ion()
+                plt.show()
+                plt.scatter(self.x,self.y,c=data)
+                plt.plot(174.121503,-35.310339,'ko')
 
             variables[par] = data # save all data slice to dictionary with key 'par'
             # Store coordinates of returned points
