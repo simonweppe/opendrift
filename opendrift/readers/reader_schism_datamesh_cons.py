@@ -87,11 +87,12 @@ class Reader(BaseReader,UnstructuredReader):
         try:
             # Open file, check that everything is ok
             logger.info('Opening dataset: ' + filestr)
-            if ('nc' not in filestr) :
+            if ('.nc' not in filestr) :
                 logger.info('Opening files with open_zarr')
                 self.dataset = xr.open_zarr(filestr)
             else:
                 logger.info('Opening file with open_dataset')
+                import pdb;pdb.set_trace() # should not happen
                 self.dataset = xr.open_dataset(filestr,chunks={'time': 1})
             # need to edit the cons name for correct use in oceantide later on
             self.dataset['con']=[x.strip().upper() for x in self.dataset['cons'].values]
