@@ -2,7 +2,7 @@ import numpy as np
 from datetime import timedelta, datetime
 from opendrift.readers import reader_global_landmask
 from opendrift.models.oceandrift import OceanDrift
-from opendrift.readers import reader_schism_datamesh_cons
+from opendrift.readers import reader_datamesh_schism_cons
 
 ###############################
 # MODEL
@@ -14,7 +14,7 @@ o = OceanDrift(loglevel=0)  # Set loglevel to 0 for debug information
 
 reader_landmask = reader_global_landmask.Reader() 
 
-schism_datamesh_cons = reader_schism_datamesh_cons.Reader(
+schism_datamesh_cons = reader_datamesh_schism_cons.Reader(
 	filename = 'calypso-tidalcons-hauraki-v1',)  # native coordinate system is lon/lat
 # this will include the mesh boundary polygons and interior islands
 

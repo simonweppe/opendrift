@@ -92,7 +92,7 @@ class Reader(BaseReader,UnstructuredReader):
                 self.dataset = xr.open_zarr(filestr)
             else:
                 logger.info('Opening file with open_dataset')
-                import pdb;pdb.set_trace() # should not happen
+                import pdb;pdb.set_trace() # not tested yet
                 self.dataset = xr.open_dataset(filestr,chunks={'time': 1})
             # need to edit the cons name for correct use in oceantide later on
             self.dataset['con']=[x.strip().upper() for x in self.dataset['cons'].values]
