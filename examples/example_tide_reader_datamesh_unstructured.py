@@ -12,16 +12,13 @@ o = OceanDrift(loglevel=0)  # Set loglevel to 0 for debug information
 # READERS
 ###############################
 
-reader_landmask = reader_global_landmask.Reader() 
-
+# reader_landmask = reader_global_landmask.Reader() 
 schism_datamesh_cons = reader_datamesh_schism_cons.Reader(
 	filename = 'calypso-tidalcons-hauraki-v1',)  # native coordinate system is lon/lat
 # this will include the mesh boundary polygons and interior islands
 
-# >> see how we can use it as land_bindary_mask
 import pdb;pdb.set_trace()
-# schism_native.plot_mesh()
-o.add_reader([reader_landmask,schism_datamesh_cons]) #
+o.add_reader([schism_datamesh_cons]) #
 o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
 o.set_config('general:coastline_action', 'previous') # prevent particles stranding
 o.set_config('drift:horizontal_diffusivity', 0.1) # Switch on horizontal diffusivity. Set this at 0.1 m2/s (https://journals.ametsoc.org/view/journals/atot/22/9/jtech1794_1.xml)
@@ -54,5 +51,3 @@ o.run(stop_on_error = True,
 import pdb;pdb.set_trace()
 o.plot(fast=True,filename='test_schism_datamesh_cons.png')
 o.animation(fast=True,filename='test_schism_datamesh_cons.gif')
-
-# >> need to find a way to use the land_binary mask information from the cons grid
