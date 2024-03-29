@@ -734,7 +734,6 @@ class Reader(BaseReader,UnstructuredReader):
            The function returns environment data 'env' interpolated at particle positions [x,y] 
 
         """
-
         # block = False # legacy stuff 
 
         # Find reader time_before/time_after
@@ -1403,7 +1402,7 @@ class ReaderBlockUnstruct():
         
         env_dict = {}
         if profiles is not []:
-            profiles_dict = {'z': self.z} # probably not valid...
+            profiles_dict = {'z': profiles_depth} # consistent with what is done in <unstructured.py> line 70
         for varname, data in iteritems(self.data_dict):
             nearest = False
             # land mask 
