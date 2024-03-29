@@ -1402,6 +1402,7 @@ class ReaderBlockUnstruct():
         
         env_dict = {}
         if profiles is not []:
+            # profiles_dict = {'z': self.z} # probably not valid...
             profiles_dict = {'z': profiles_depth} # consistent with what is done in <unstructured.py> line 70
         for varname, data in iteritems(self.data_dict):
             nearest = False
@@ -1475,8 +1476,7 @@ class ReaderBlockUnstruct():
                 # horizontal = self._interpolate_horizontal_layers(data, nearest=nearest)
             
             if profiles is not None and varname in profiles:
-                # not functional yet...
-                # need to lookup what actually is expected here
+                # not really functional yet...we should interpolate data at top and bottom of profiles here,
                 profiles_dict[varname] = data_interpolated # horizontal
 
             # if horizontal.ndim > 1:
