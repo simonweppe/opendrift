@@ -20,22 +20,16 @@
 # using the python package oceantide (https://github.com/oceanum/oceantide/)
 # 
 # 
-# The reader is starting from the reader_netCDF_generic.py as base
+# The reader is starting from the reader_netCDF_generic.py as base.
 # 
-# 2 possible appraoches for the interpolation :
-# 
-# Option 1 : generate gridded tidal elevation/currents to be passed to 
-#            generic interpolation process (i.e. values at particle positions)
-#            interpolated from gridded fields
-# 
-# Option 2 : generate tidal elevation/currenst directly at particle poistions
-#            by interpolating constituents at particle positions
+# We overload the _get_interpolated_variables_() function to provide 
+# tidal data directly at the particle locations.
 # 
 # Author: Simon Weppe. Calypso Science New Zealand
 ##########################################################################
 
-# Copyright 2015, Knut-Frode Dagestad, MET Norway
-
+# Copyright 2015, Knut-Frode Dagestad, MET Norway,  
+# Copyright 2024, Simon Weppe. Calypso Science New Zealand
 
 from datetime import datetime
 import pyproj
@@ -51,7 +45,6 @@ import xarray as xr
 import oceantide
 
 
-
 standard_name_mapping_datamesh = {
     'u': 'x_sea_water_velocity', 
     'v': 'y_sea_water_velocity',
@@ -64,7 +57,6 @@ standard_name_mapping_datamesh_invert = {v: k for k, v in standard_name_mapping_
 
 # class Reader(StructuredReader, BaseReader):
 class Reader(reader_netCDF_CF_generic.Reader):
-    pass
     """
     A reader for `CF-compliant <https://cfconventions.org/>`_ netCDF files. It can take a single file, a file pattern, a URL or an xarray Dataset.
 
@@ -140,6 +132,10 @@ class Reader(reader_netCDF_CF_generic.Reader):
         else:
             self.use_log_profile = False
 
+        # use dummy start/end times instead, to make it always valid time-wise (needed for some check in get_environment() )
+        self.start_time = datetime(1000,1,1) 
+        self.end_time = datetime(3000,1,1) 
+
         # by default we activate the derivation of land_binary_mask from 'sea_floor_depth_below_sea_level
         # https://github.com/OpenDrift/opendrift/blob/master/opendrift/readers/basereader/variables.py#L443
         self.activate_environment_mapping('land_binary_mask_from_ocean_depth')
@@ -178,13 +174,13 @@ class Reader(reader_netCDF_CF_generic.Reader):
     
     def _get_variables_interpolated_(self, variables, profiles, profiles_depth,
                                      time, reader_x, reader_y, z):
-        
         # overloads the version from <structured.py>
         # 
         # Here we interpolate constituents to particle positions then generate tide signals 
         # (instead of interpolating from gridded fields created in get_variables() )
 
         # For global readers, we shift coordinates to match actual lon range
+
         if self.global_coverage():
             if self.lon_range() == '-180to180':
                 logger.debug('Shifting coordinates to -180-180')
@@ -221,7 +217,7 @@ class Reader(reader_netCDF_CF_generic.Reader):
             mx = reader_x
             my = reader_y
             mz = z
-        
+
         # Interpolate constituents to particle positions, then generate tide data
         # 
         # Note : self.Dataset.interp(lon=reader_x, lat=reader_y).tide.predict(times=time) 
@@ -233,16 +229,28 @@ class Reader(reader_netCDF_CF_generic.Reader):
         
         lon_id = xr.DataArray(reader_x, dims='z')
         lat_id = xr.DataArray(reader_y, dims='z') 
-        tide_pred = self.Dataset.interp(lon=lon_id, lat=lat_id).tide.predict(times=time) 
+        
+        if 'x_sea_water_velocity' in variables :
+            tide_pred = self.Dataset.interp(lon=lon_id, lat=lat_id).tide.predict(times=time) 
+            # the <env> variable to return is a dict such as
+            # env =  {'sea_floor_depth_below_sea_level' : np.array(), ...}
+            # 
+            # package data to dictionary 
+            env = {}
+            for var in variables:
+                env[var] = np.ma.masked_invalid(tide_pred[standard_name_mapping_datamesh_invert[var]])
+        
+        else: # static variables, like depth, used to estimate land_binary_mask via land_binary_mask_from_ocean_depth()
+            if variables == ['sea_floor_depth_below_sea_level'] : # only depth can be requested as static variables
+                depth = self.Dataset['dep'].interp(lon=lon_id, lat=lat_id)
+                # package to dictionary
+                env = {}
+                env['sea_floor_depth_below_sea_level'] = np.ma.masked_invalid(depth)
+            else:
+                # should not happen for now
+                import pdb;pdb.set_trace()
 
-        # the <env> variable to return is a dict such as
-        # env =  {'sea_floor_depth_below_sea_level' : np.array(), ...}
-        # 
-        # package data to dictionary 
-        env = {}
-        for var in variables:
-            env[var] = np.ma.masked_invalid(tide_pred[standard_name_mapping_datamesh_invert[var]])
-            
+
         # not supporting profiles for now - set to None
         env_profiles = None
 

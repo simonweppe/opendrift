@@ -439,8 +439,14 @@ class ReaderDomain(Timeable):
 # Methods to derive environment variables from others available
 ################################################################
 
-def land_binary_mask_from_ocean_depth(env):
+def land_binary_mask_from_ocean_depth(env,in_name=None,out_name=None):
     env['land_binary_mask'] = np.float32(env['sea_floor_depth_below_sea_level'] <= 0)
+    # this makes the mask back to size 1, rather than size of array, not sure why
+    #  so we make sure we have an array` for the mask `
+    if np.ma.isMaskedArray(env['land_binary_mask']):
+        mask = env['land_binary_mask'].mask
+        if len(mask.shape) ==0 :
+            env['land_binary_mask'].mask = mask * env['land_binary_mask'].data 
 
 def wind_from_speed_and_direction(env, in_name, out_name):
     if 'wind_from_direction' in env:
@@ -762,8 +768,8 @@ class Variables(ReaderDomain):
         variables.extend(list(set(derived_input)))
 
         env, env_profiles = self._get_variables_interpolated_(
-            variables, profiles, profiles_depth, time, x, y, z)
-
+            variables, profiles, profiles_depth, time, x, y, z) 
+               
         # Calculate derived variables
         if len(derived) > 0:
             self.__calculate_derived_environment_variables__(env)

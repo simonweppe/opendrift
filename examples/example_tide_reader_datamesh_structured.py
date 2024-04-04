@@ -38,8 +38,10 @@ o.seed_elements(lon=174.572107,
 o.run(stop_on_error = True,
       time_step=900, 
         end_time = time_run[-1],
-      time_step_output = 1800.)
-        # outfile='schism_native_output.nc')
+        time_step_output = 1800.,
+        outfile='test_datamesh_regular_cons.nc')
+
 import pdb;pdb.set_trace()
+
 o.plot(fast=True,filename='test_datamesh_regular_cons.png')
 o.animation(fast=True,filename='test_datamesh_regular_cons.gif')

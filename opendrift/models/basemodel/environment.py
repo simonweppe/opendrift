@@ -755,6 +755,7 @@ class Environment(Timeable, Configurable):
                             np.ma.mask_or(combined_mask,
                                           np.ma.getmask(tmp_var),
                                           shrink=False)
+                        combined_mask = combined_mask.squeeze() # added .squeeze() as shape can be wrong (simon Weppe). 
                 try:
                     if len(missing_indices) != len(combined_mask):
                         # TODO: mask mismatch due to 2 added points
