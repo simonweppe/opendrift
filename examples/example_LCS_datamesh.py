@@ -2,6 +2,16 @@
 """
 LCS from Datamesh tidal flows (regular grid)
 ==================================
+
+Note : we could add methods from Mireya's cLCS to compute complete Green Cauchy tensor 
+
+- calculate_Cauchy_Green() : computation of Green-Cauchy tensor (incl. C11,C12,C22) https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
+
+- computation of squeezeline from C11,C12,C22 : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L43
+see the run() function of that class
+
+- See full cLCS example here : https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb
+
 """
 
 from datetime import datetime, timedelta
@@ -19,7 +29,6 @@ o.add_reader([datamesh_regular_cons]) #
 o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
 o.set_config('general:coastline_action', 'previous') # prevent particles stranding
 o.set_config('drift:horizontal_diffusivity', 0.0) # Switch on horizontal diffusivity. Set this at 0.1 m2/s (https://journals.ametsoc.org/view/journals/atot/22/9/jtech1794_1.xml)
-
 
 # Now compute LCS
 
