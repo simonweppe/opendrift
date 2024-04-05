@@ -72,10 +72,10 @@ class Reader(BaseReader,UnstructuredReader):
 
             proj4       :   proj4 string defining spatial reference system. 
                             find string here : https://spatialreference.org/ref/epsg/
-                            ** note ***
-                            if the (x,y) in model output files are in wgs84, the user must specify 
-                            a cartesian coordinate system that will be used to convert the geographic  
-                            coords into cartesian for internal use
+                            
+                            Note : if the (x,y) in model output files are in wgs84, and the user want to run in 3D, 
+                            then it must specify a cartesian coordinate system as <proj4> that will be used 
+                            to convert the geographic coords into cartesian coordinates for correct 3D interpolation
 
             use_3d      :   switch to use 3d flows (if available)
             
