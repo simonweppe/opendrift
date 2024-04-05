@@ -53,7 +53,7 @@ import pdb;pdb.set_trace()
 # Convert LCS data to xarray 
 import xarray as xr
 data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
-               'RLCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),}  
+               'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),}  
 ds = xr.Dataset(data_vars=data_dict, 
                 coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
 ds.ALCS.isel(time=0).plot(vmin=1e-7,vmax=1e-5)

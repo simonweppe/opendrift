@@ -4680,3 +4680,201 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
     def gui_postproc(self):
         '''To be overloaded by subclasses'''
         pass
+
+
+#############################
+# New functions Simon Weppe
+#############################
+
+    def calculate_green_cauchy_tensor(self,
+                       reader=None,
+                       delta=None,
+                       domain=None,
+                       time=None,
+                       time_step=None,
+                       duration=None,
+                       z=0,
+                       RLCS=True,
+                       ALCS=True):
+        '''
+        Calculate Green-Cauchy Tensor
+        
+        Using the function calculate_ftle() as template and adding new code from 
+        script here : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
+        
+        Mireya Montano / Rodrigo Duran
+
+        '''
+        if reader is None:
+            logger.info('No reader provided, using first available:')
+            reader = list(self.env.readers.items())[0][1]
+            logger.info(reader.name)
+        if isinstance(reader, pyproj.Proj):
+            proj = reader
+        elif isinstance(reader, str):
+            proj = pyproj.Proj(reader)
+        else:
+            proj = reader.proj
+
+        # from opendrift.models.physics_methods import ftle
+
+        if not isinstance(duration, timedelta):
+            duration = timedelta(seconds=duration)
+
+        if domain == None:
+            xs = np.arange(reader.xmin, reader.xmax, delta)
+            ys = np.arange(reader.ymin, reader.ymax, delta)
+        else:
+            xmin, xmax, ymin, ymax = domain
+            xs = np.arange(xmin, xmax, delta)
+            ys = np.arange(ymin, ymax, delta)
+
+        X, Y = np.meshgrid(xs, ys)
+        lons, lats = proj(X, Y, inverse=True)
+
+        if time is None:
+            time = reader.start_time
+        if not isinstance(time, list):
+            time = [time]
+        # dictionary to hold LCS calculation
+        lcs = {'time': time, 'lon': lons, 'lat': lats}
+        # LCS and C variables for repulsive LCS
+        lcs['RLCS'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['R_lda2'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['R_C11'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['R_C12'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['R_C22'] = np.zeros((len(time), len(ys), len(xs)))
+        # LCS and C variables for attractive LCS
+        lcs['ALCS'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['A_lda2'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['A_C11'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['A_C12'] = np.zeros((len(time), len(ys), len(xs)))
+        lcs['A_C22'] = np.zeros((len(time), len(ys), len(xs)))
+
+        T = np.abs(duration.total_seconds())
+
+        for i, t in enumerate(time):
+            logger.info('Calculating LCS for ' + str(t))
+            # Forwards
+            if RLCS is True:
+                o = self.clone()
+                o.seed_elements(lons.ravel(), lats.ravel(), time=t, z=z)
+                o.run(duration=duration, time_step=time_step)
+                f_x1, f_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
+                                  o.history['lat'].T[-1].reshape(X.shape))
+                # lcs['RLCS'][i, :, :] = ftle(f_x1 - X, f_y1 - Y, delta, T)
+                lcs['R_C11'][i, :, :], \
+                lcs['R_C12'][i, :, :], \
+                lcs['R_C22'][i, :, :], \
+                lcs['R_lda2'][i, :, :], \
+                lcs['RLCS'][i, :, :] = \
+                    GC_tensor(f_x1 - X, f_y1 - Y, delta, T)
+            # Backwards
+            if ALCS is True:
+                o = self.clone()
+                o.seed_elements(lons.ravel(),
+                                lats.ravel(),
+                                time=t + duration,
+                                z=z)
+                o.run(duration=duration, time_step=-time_step)
+                b_x1, b_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
+                                  o.history['lat'].T[-1].reshape(X.shape))
+                # lcs['ALCS'][i, :, :] = ftle(b_x1 - X, b_y1 - Y, delta, T)
+                lcs['A_C11'][i, :, :], \
+                lcs['A_C12'][i, :, :], \
+                lcs['A_C22'][i, :, :], \
+                lcs['A_lda2'][i, :, :], \
+                lcs['ALCS'][i, :, :] =  GC_tensor(b_x1 - X, b_y1 - Y, delta, T)
+        
+        # it seems we can mask values where ALCS/RCLS == 1.0, and C**== 0, and lda2==0.5
+        lcs['ALCS'][lcs['ALCS']==1.0] = np.nan
+        lcs['A_C11'][lcs['A_C11']==0.0] = np.nan
+        lcs['A_C12'][lcs['A_C12']==0.0] = np.nan
+        lcs['A_C22'][lcs['A_C22']==0.0] = np.nan
+        lcs['A_lda2'][lcs['A_lda2']==0.5] = np.nan
+
+        lcs['RLCS'][lcs['RLCS']==1.0] = np.nan
+        lcs['R_C11'][lcs['R_C11']==0.0] = np.nan
+        lcs['R_C12'][lcs['R_C12']==0.0] = np.nan
+        lcs['R_C22'][lcs['R_C22']==0.0] = np.nan
+        lcs['R_lda2'][lcs['R_lda2']==0.5] = np.nan
+
+        # mask arrays      
+        for var in lcs.keys():
+            if var not in ['time', 'lon', 'lat']:
+                lcs[var] = np.ma.masked_invalid(lcs[var])
+        
+        # Flipping ALCS left-right. Not sure why this is needed
+        # It's not needed for RLCS
+        lcs['ALCS'] = lcs['ALCS'][:, ::-1, ::-1]
+        lcs['A_C11'] = lcs['A_C11'][:, ::-1, ::-1]
+        lcs['A_C12'] = lcs['A_C12'][:, ::-1, ::-1]
+        lcs['A_C22'] = lcs['A_C22'][:, ::-1, ::-1]
+        lcs['A_lda2'] = lcs['A_lda2'][:, ::-1, ::-1]
+        
+        # Convert LCS data to xarray 
+        import xarray as xr
+        data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
+                       'A_C11': (('time', 'lat', 'lon'), lcs['A_C11'].data,{'units': '-', 'description': 'C11 constant attractive'} ),
+                       'A_C12': (('time', 'lat', 'lon'), lcs['A_C12'].data,{'units': '-', 'description': 'C12 constant attractive'} ),
+                       'A_C22': (('time', 'lat', 'lon'), lcs['A_C22'].data,{'units': '-', 'description': 'C22 constant attractive'} ),
+                       'A_lda2' : (('time', 'lat', 'lon'), lcs['A_lda2'].data,{'units': '-', 'description': 'lda2 attractive LCS'} ),
+              
+                       'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),
+                       'R_C11': (('time', 'lat', 'lon'), lcs['R_C11'].data,{'units': '-', 'description': 'C11 constant repulsive'} ),
+                       'R_C12': (('time', 'lat', 'lon'), lcs['R_C12'].data,{'units': '-', 'description': 'C12 constant repulsive'} ),
+                       'R_C22': (('time', 'lat', 'lon'), lcs['R_C22'].data,{'units': '-', 'description': 'C22 constant repulsive'} ),
+                       'R_lda2' : (('time', 'lat', 'lon'), lcs['R_lda2'].data,{'units': '-', 'description': 'lda2 repulsive LCS'} ),
+                       }  
+        ds_lcs = xr.Dataset(data_vars=data_dict, 
+                        coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
+
+        return lcs, ds_lcs
+    
+def GC_tensor(X, Y, delta, duration):
+
+    """Calculate Green Cauchy Tensors
+    
+        Adapting code from cLCS : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
+
+        Input : 
+        X,Y : particle displacement at end of simulation (i.e. X = Xfinal-X0, Y=Yfinal-Y0) 
+        delta : spatial seeding step (same on X and Y directions)
+        duration : duration of simulation in seconds
+
+        Outputs: 
+        C11, C12, C22, lda2, ftle
+        
+        ftle should be consistent with results from ftle()
+    """
+    
+    # self.logger.info("--- Calculating the Cauchy-Green Tensor")
+    print("--- Calculating Cauchy-Green Tensor")
+    #  original code
+    # dxdy, dxdx = np.gradient(end_x, self.dy0, self.dx0)
+    # dydy, dydx = np.gradient(end_y, self.dy0, self.dx0)
+    # dxdx0 = np.reshape(dxdx, (self.Ny0, self.Nx0))
+    # dxdy0 = np.reshape(dxdy, (self.Ny0, self.Nx0))
+    # dydx0 = np.reshape(dydx, (self.Ny0, self.Nx0))
+    # dydy0 = np.reshape(dydy, (self.Ny0, self.Nx0))
+
+    # here dx0,dy0 equals to delta. The input (X,Y) are the total particle displacement at end of simulation,
+    # and are already in matrix form, i.e. no need to reshape
+    
+    dxdy, dxdx =  np.gradient(X, delta, delta)
+    dydy, dydx =  np.gradient(Y, delta, delta)
+    
+    dxdx0 = dxdx
+    dxdy0 = dxdy
+    dydx0 = dydx
+    dydy0 = dydy
+    
+    C11 = (dxdx0**2) + (dydx0**2)
+    C12 = (dxdx0 * dxdy0) + (dydx0 * dydy0)
+    C22 = (dxdy0**2) + (dydy0**2)
+    detC = (C11 * C22) - (C12**2)
+    trC = C11 + C22
+    lda2 = np.real(0.5 * trC + np.sqrt(0.25 * trC**2 - detC))
+    ftle = np.log(lda2) / (2 * np.abs(duration))
+
+    return C11, C12, C22, lda2, ftle
