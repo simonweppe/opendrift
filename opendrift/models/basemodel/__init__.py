@@ -4713,7 +4713,10 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             proj = reader
         elif isinstance(reader, str):
             proj = pyproj.Proj(reader)
-        else:
+        # added simon, if proj4 is defined but self.proj was not instanciated
+        elif hasattr(reader, 'proj4') :
+            proj = pyproj.Proj(reader.proj4)
+        else :
             proj = reader.proj
 
         # from opendrift.models.physics_methods import ftle
@@ -4762,13 +4765,22 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 o.run(duration=duration, time_step=time_step)
                 f_x1, f_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
                                   o.history['lat'].T[-1].reshape(X.shape))
+                
+                >> displacement should be converted to meters here,
+                >> use pyproj for robust conversion, need to find a conversion that work for entire domain 
+                >> maybe specify a user-provided proj4 if reader is NOT in cartesian? 
+                >> see reader_schism_native.py to see how to convert lon,lat with pyproj
+                
+                xnet,ynet = lat_lon_to_x_y(start_lon=X, 
+                                           end_lon = f_x1, 
+                                           start_lat=Y,
+                                           end_lat=f_y1) # xnet,ynet are net displacement in meters
                 # lcs['RLCS'][i, :, :] = ftle(f_x1 - X, f_y1 - Y, delta, T)
                 lcs['R_C11'][i, :, :], \
                 lcs['R_C12'][i, :, :], \
                 lcs['R_C22'][i, :, :], \
                 lcs['R_lda2'][i, :, :], \
-                lcs['RLCS'][i, :, :] = \
-                    GC_tensor(f_x1 - X, f_y1 - Y, delta, T)
+                lcs['RLCS'][i, :, :] =  GC_tensor(xnet,ynet, delta, T) # GC_tensor(f_x1 - X, f_y1 - Y, delta, T)
             # Backwards
             if ALCS is True:
                 o = self.clone()
@@ -4779,12 +4791,17 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 o.run(duration=duration, time_step=-time_step)
                 b_x1, b_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
                                   o.history['lat'].T[-1].reshape(X.shape))
+                import pdb;pdb.set_trace()
+                xnet,ynet = lat_lon_to_x_y(start_lon=X, 
+                                           end_lon = b_x1, 
+                                           start_lat=Y,
+                                           end_lat=b_y1) # xnet,ynet are net displacement in meters
                 # lcs['ALCS'][i, :, :] = ftle(b_x1 - X, b_y1 - Y, delta, T)
                 lcs['A_C11'][i, :, :], \
                 lcs['A_C12'][i, :, :], \
                 lcs['A_C22'][i, :, :], \
                 lcs['A_lda2'][i, :, :], \
-                lcs['ALCS'][i, :, :] =  GC_tensor(b_x1 - X, b_y1 - Y, delta, T)
+                lcs['ALCS'][i, :, :] =  GC_tensor( xnet,ynet, delta, T) # GC_tensor(b_x1 - X, b_y1 - Y, delta, T)
         
         # it seems we can mask values where ALCS/RCLS == 1.0, and C**== 0, and lda2==0.5
         lcs['ALCS'][lcs['ALCS']==1.0] = np.nan
@@ -4803,6 +4820,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         for var in lcs.keys():
             if var not in ['time', 'lon', 'lat']:
                 lcs[var] = np.ma.masked_invalid(lcs[var])
+
         
         # Flipping ALCS left-right. Not sure why this is needed
         # It's not needed for RLCS
@@ -4878,3 +4896,36 @@ def GC_tensor(X, Y, delta, duration):
     ftle = np.log(lda2) / (2 * np.abs(duration))
 
     return C11, C12, C22, lda2, ftle
+
+
+def lat_lon_to_x_y(start_lon, end_lon, start_lat,end_lat):
+    # adapted from https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L343C1-L350C28
+    # converts lon,lat displacement to net X,Y displacement
+
+    [end_x, end_y] = sph2xy(end_lon, start_lon, end_lat, start_lat)
+    # it seems like it's converted to km here, why ?? 
+    end_x = end_x * 1e-3
+    end_y = end_y * 1e-3
+    # end_x = end_x.reshape(self.Ny0, self.Nx0)
+    # end_y = end_y.reshape(self.Ny0, self.Nx0)
+    return end_x, end_y
+
+
+def sph2xy(lambda0, lambda1, theta0, theta1):
+    ############# SPH2XY Spherical to curvilinear spherical. ############
+    ##### where X,Y are in meters and LAMBDA0,THETA0 are in degrees#####
+    R = 6371 * 1e3
+    deg2rad = np.pi / 180
+    x = R * (lambda0 - lambda1) * deg2rad * np.cos(theta1 * deg2rad)
+    y = R * (theta0 - theta1) * deg2rad
+    return x, y
+
+
+def xy2sph(x, lambda1, y, theta1):
+    ############# XY2SPH Curvilinear spherical to spherical. ############
+    ##### where X,Y are in meters and LAMBDA1,THETA1 are in degrees#####
+    R = 6371 * 1e3
+    deg2rad = np.pi / 180
+    lambda0 = lambda1 + x / (R * np.cos(theta1 * deg2rad)) / deg2rad
+    theta0 = theta1 + y / R / deg2rad
+    return lambda0, theta0

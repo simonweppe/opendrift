@@ -1,7 +1,20 @@
 #!/usr/bin/env python
 """
-SCHISM native reader
-==================================
+LCS from SCHISM NZ domain
+
+Ongoing work to add methods from Mireya's/Duran's cLCS toolbox to compute complete Green Cauchy tensor + squeezelines.
+
+- calculate_Cauchy_Green() : computation of Green-Cauchy tensor (incl. C11,C12,C22) https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
+
+- computation of squeezeline from C11,C12,C22 : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L43
+see the run() function of that class
+
+- See full cLCS example here : https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb
+
+-------
+Note 
+>> probably need to convert to cartesian coords prior to get displacements in meters rather than degrees ? esp. for larger areas? 
+
 """
 
 import numpy as np
@@ -27,7 +40,7 @@ reader_landmask = reader_global_landmask.Reader()
 proj_wgs84 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' # proj4 string for WGS84
 
 schism_native = reader_schism_native.Reader(
-	filename = 'oceanum_ocean_nz_schism_v1_2D.nc',
+	filename = '/home/simon/calypso_science/projects/NP_disposalgrounds/opendrift_modelling/oceanum_ocean_nz_schism_v1_2D.nc',
 	proj4 = proj_wgs84,
 	use_3d = False,
 	use_model_landmask = False)
@@ -49,20 +62,21 @@ integration_time = timedelta(hours=24)  # integration time to compute the LCS (u
 # o = o.clone()
 # Calculating attracting/backwards FTLE/LCS for integration time of T = 6 hours.
 # built-in LCS computation
-lcs = o.calculate_ftle(
-    time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
-    time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
-    duration   = integration_time,    
-    delta      = 0.05, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
-    domain     = [171.0, 177.0, -39.0, -35.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
-    ALCS       = True,  # attractive LCS, run backwards in time
-    RLCS       = False) # repulsive LCS, run forward in time
-# Convert LCS data to xarray 
-import xarray as xr
-data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
-               'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),}  
-ds_lcs = xr.Dataset(data_vars=data_dict, 
-                coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
+if False:
+    lcs = o.calculate_ftle(
+        time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
+        time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
+        duration   = integration_time,    
+        delta      = 0.05, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
+        domain     = [171.0, 177.0, -39.0, -35.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
+        ALCS       = True,  # attractive LCS, run backwards in time
+        RLCS       = False) # repulsive LCS, run forward in time
+    # Convert LCS data to xarray 
+    import xarray as xr
+    data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
+                'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),}  
+    ds_lcs = xr.Dataset(data_vars=data_dict, 
+                    coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
 
 # new green-cauchy tensors - still need to add squeezelines
 lcs_new,ds_lcs_new = o.calculate_green_cauchy_tensor(
@@ -80,11 +94,13 @@ import matplotlib.pyplot as plt;plt.ion();plt.show()
 # example plots with xarray 
 fig, ax = plt.subplots()
 ds_lcs.ALCS.isel(time=0).plot(vmin=1e-7,vmax=1e-6)
+ax.set_title('Built-in Method for LCS')
 
 fig, ax = plt.subplots()
-ds_lcs_new.ALCS.isel(time=0).plot(vmin=8e-6,vmax=9e-6)
+ds_lcs_new.ALCS.isel(time=0).plot(vmin=1e-7,vmax=2e-6)
+ax.set_title('Duran methods for LCS')
 
 # >> patterns are the same, but LCS magnitude range is quite different 
-
-# >> next step is to compute squeezelines, uisng saved variables C11,C12,C22
-# see https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L12
+# 
+#  after using final position rather than net displacement (as in ftle), we get more consistent FLTE magnitudes
+# 

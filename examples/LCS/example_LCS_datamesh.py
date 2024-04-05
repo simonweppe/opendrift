@@ -2,16 +2,6 @@
 """
 LCS from Datamesh tidal flows (regular grid)
 ==================================
-
-Note : we could add methods from Mireya's cLCS to compute complete Green Cauchy tensor 
-
-- calculate_Cauchy_Green() : computation of Green-Cauchy tensor (incl. C11,C12,C22) https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
-
-- computation of squeezeline from C11,C12,C22 : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L43
-see the run() function of that class
-
-- See full cLCS example here : https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb
-
 """
 
 from datetime import datetime, timedelta
