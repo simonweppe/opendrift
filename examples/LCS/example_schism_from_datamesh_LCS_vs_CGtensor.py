@@ -57,13 +57,14 @@ o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 
 # start time for LCS computation
 time_lcs_start  = [schism_native.start_time,schism_native.start_time +timedelta(hours=12.)] # can a single value or list of values
-integration_time = timedelta(hours=24)  # integration time to compute the LCS (using position at t0 and t0+integration_time)
+integration_time = timedelta(hours=12)  # integration time to compute the LCS (using position at t0 and t0+integration_time)
 
 # o = o.clone()
 # Calculating attracting/backwards FTLE/LCS for integration time of T = 6 hours.
 # built-in LCS computation
-if False:
+if True:
     lcs = o.calculate_ftle(
+        reader     = schism_native, # need to specify here or else it will the first one
         time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
         time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
         duration   = integration_time,    
