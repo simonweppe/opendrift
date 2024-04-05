@@ -4622,7 +4622,14 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             print('reader coordinate system is wgs4 - need to specify a cartesian coords system to be used for LCS computation')
             >> when reader has native wgs84 coordinates, we need to convert these to cartesian prior to doing the LCS computation
             >> add a user-defined input proj_for_lcs = XX that will be used to convert coords with pyproj
-            >> enforce <delta> input in meters and also decide whether domain should be native WGS84 (better?) or input in cartesian   
+            >> enforce <delta> input in meters and also decide whether domain should be native WGS84 (better?) or input in cartesian 
+            
+            >> see distance_between_trajectories() from physics_methods.py ..might be a way not requiring user input
+            
+            geod = pyproj.Geod(ellps='WGS84')
+            azimuth_forward, a2, distance = geod.inv(lon1, lat1, lon2, lat2)
+            azimuth_forward, a2, distance = geod.inv(lonf, latf, lon[1:], lat[1:])
+                                                                                                      
                                                                                                           
 
         if time is None:
