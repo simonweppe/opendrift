@@ -234,64 +234,90 @@ class compute_cLCS_squeezelines(object):
         return [rr, cc]
 
     def run(self):
-        import pdb;pdb.set_trace()
+       
+        # Note in Mireya's code
+        # C11total, C12total, C22total are accumulated values for the 
+        # particle releases deployed for the climatolgical LCS calculation
+        # see https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L82
+        # 
+        # so when used in "climatological" mode she's just doing a time-average of these
 
-        if isinstance(self.month_or_id, int):
-            self.month_or_id = "%02d" % self.month_or_id
-    
-        month_dirr = self.dirr + self.month_or_id + "/"
-        if self.climatology:
-            (
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    C11total,
-                    C22total,
-                    C12total,
-                    xspan,
-                    yspan,
-                    count,
-            ) = pickle.load(open(f"{month_dirr}TOT-{self.month_or_id}.p", "rb"))
-            N = count
-            C11 = C11total / N
-            C22 = C22total / N
-            C12 = C12total / N
-            ArcLength = self.arclength
-            self.pxt, self.pyt = self.squeezeline(
-                    C11, C12, C22, xspan[-1, :], yspan[:, -1], [0, ArcLength]
-            )
-            zeros = np.where((np.diff(self.pxt,1)[:,0]==0) | (np.diff(self.pyt,1)[:,0]==0))[0]
-            self.pxt = np.delete(self.pxt, zeros, 0)
-            self.pyt = np.delete(self.pyt, zeros, 0)
-            pickle.dump([self.pxt, self.pyt], open(f"{month_dirr}/cLCS_{self.month_or_id}.p", "wb"))
+        # N = len(self.ds_lcs.time) # how many time step
+        C11 = self.ds_lcs.A_C11.mean(dim='time') 
+        C22 = self.ds_lcs.A_C22.mean(dim='time') 
+        C12 = self.ds_lcs.A_C12.mean(dim='time') 
+        ArcLength = self.arclength # in meters
+        # xspan,yspan are defined in Mireya's code :  https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L288
+        # x = np.arange(0, xmax*1e-3, self.dx0)
+        # y = np.arange(0, ymax*1e-3, self.dy0)
+        # self.xspan, self.yspan = np.meshgrid(x,y)
+        # >> where self.dx0,self.dy0 are in kilometers, see https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb 
 
-        else: 
-            if not self.files:
-                self.files = sorted(glob.glob(f"{month_dirr}/LCS_{self.month_or_id}*-CG.p"))
-            for file in self.files:
-                outfile = file.split('-')[0]
+        xspan = self.ds_lcs.X[0,:]-self.ds_lcs.X[0,0] * 1e-3 # X-grid, relative to 0, in kilometers in Mireya's code
+        yspan = self.ds_lcs.Y[:,0]-self.ds_lcs.Y[0,0] * 1e-3 # Y-grid, relative to 0, in kilometers in Mireya's code
+        # now compute squeezelines
+        self.pxt, self.pyt = self.squeezeline(C11, C12, C22, xspan, yspan, [0, ArcLength])
+        zeros = np.where((np.diff(self.pxt,1)[:,0]==0) | (np.diff(self.pyt,1)[:,0]==0))[0]
+        self.pxt = np.delete(self.pxt, zeros, 0)
+        self.pyt = np.delete(self.pyt, zeros, 0)        
+
+        # original code
+        if False:
+            if isinstance(self.month_or_id, int):
+                self.month_or_id = "%02d" % self.month_or_id
+        
+            month_dirr = self.dirr + self.month_or_id + "/"
+            if self.climatology:
                 (
-                            _,
-                            _,
-                            _,
-                            _,
-                            _,
-                            _,
-                            C11,
-                            C22,
-                            C12,
-                            xspan,
-                            yspan,
-                    ) = pickle.load(open(file, "rb"))
+                        _,
+                        _,
+                        _,
+                        _,
+                        _,
+                        _,
+                        C11total,
+                        C22total,
+                        C12total,
+                        xspan,
+                        yspan,
+                        count,
+                ) = pickle.load(open(f"{month_dirr}TOT-{self.month_or_id}.p", "rb"))
+                N = count
+                C11 = C11total / N
+                C22 = C22total / N
+                C12 = C12total / N
                 ArcLength = self.arclength
                 self.pxt, self.pyt = self.squeezeline(
                         C11, C12, C22, xspan[-1, :], yspan[:, -1], [0, ArcLength]
                 )
-                zeros = np.where(np.diff(self.pxt,1)[:,0]==0)[0]
+                zeros = np.where((np.diff(self.pxt,1)[:,0]==0) | (np.diff(self.pyt,1)[:,0]==0))[0]
                 self.pxt = np.delete(self.pxt, zeros, 0)
                 self.pyt = np.delete(self.pyt, zeros, 0)
-                pickle.dump([self.pxt, self.pyt], open(f"{outfile}.p", "wb"))
-                
+                pickle.dump([self.pxt, self.pyt], open(f"{month_dirr}/cLCS_{self.month_or_id}.p", "wb"))
+
+            else: 
+                if not self.files:
+                    self.files = sorted(glob.glob(f"{month_dirr}/LCS_{self.month_or_id}*-CG.p"))
+                for file in self.files:
+                    outfile = file.split('-')[0]
+                    (
+                                _,
+                                _,
+                                _,
+                                _,
+                                _,
+                                _,
+                                C11,
+                                C22,
+                                C12,
+                                xspan,
+                                yspan,
+                        ) = pickle.load(open(file, "rb"))
+                    ArcLength = self.arclength
+                    self.pxt, self.pyt = self.squeezeline(
+                            C11, C12, C22, xspan[-1, :], yspan[:, -1], [0, ArcLength]
+                    )
+                    zeros = np.where(np.diff(self.pxt,1)[:,0]==0)[0]
+                    self.pxt = np.delete(self.pxt, zeros, 0)
+                    self.pyt = np.delete(self.pyt, zeros, 0)
+                    pickle.dump([self.pxt, self.pyt], open(f"{outfile}.p", "wb"))

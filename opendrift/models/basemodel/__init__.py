@@ -4946,6 +4946,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                        'R_C12': (('time', 'lat', 'lon'), lcs['R_C12'].data,{'units': '-', 'description': 'C12 constant repulsive'} ),
                        'R_C22': (('time', 'lat', 'lon'), lcs['R_C22'].data,{'units': '-', 'description': 'C22 constant repulsive'} ),
                        'R_lda2' : (('time', 'lat', 'lon'), lcs['R_lda2'].data,{'units': '-', 'description': 'lda2 repulsive LCS'} ),
+
+                       'X' : (( 'lat', 'lon'), X,{'units': 'm', 'description': 'cartesian seeding x-coord'} ),
+                       'Y' : (( 'lat', 'lon'), Y,{'units': 'm', 'description': 'cartesian seeding y-coord'} ),
                        }  
         ds_lcs = xr.Dataset(data_vars=data_dict, 
                         coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})

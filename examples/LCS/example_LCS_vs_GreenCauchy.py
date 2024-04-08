@@ -84,7 +84,7 @@ if True:
                 'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),}  
     ds_lcs = xr.Dataset(data_vars=data_dict, 
                     coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
-
+    import pdb;pdb.set_trace()
 # new green-cauchy tensors - still need to add squeezelines
 lcs_new,ds_lcs_new = o.calculate_green_cauchy_tensor(
     reader     = schism_native,
