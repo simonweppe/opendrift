@@ -2,24 +2,27 @@
 """
 LCS from SCHISM NZ domain
 
-Ongoing work to add methods from Mireya's/Duran's cLCS toolbox to compute complete Green Cauchy tensor + squeezelines.
+Compare LCS metrics obtained with opendrift built-in methods, with methods adapted from cLCS (Duran, Montano)
 
-- calculate_Cauchy_Green() : computation of Green-Cauchy tensor (incl. C11,C12,C22) https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
+----
+Ongoing work to add methods from Mireya's/Duran's cLCS toolbox
 
-- computation of squeezeline from C11,C12,C22 : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L43
-see the run() function of that class
+- calculate_Cauchy_Green() : DONE
+    computation of Green-Cauchy tensor (incl. C11,C12,C22) https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
 
-- See full cLCS example here : https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb
+- computation of squeezeline from C11,C12,C22 : TO DO 
+    https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L43
+    see the run() function of that class
 
--------
-Note 
->> probably need to convert to cartesian coords prior to get displacements in meters rather than degrees ? esp. for larger areas? 
+- See full cLCS example with squeezeline comoutations
+  here : https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb
 
 """
 
 import numpy as np
 from datetime import timedelta, datetime
 from opendrift.readers import reader_schism_native
+from opendrift.readers import reader_constant
 from opendrift.readers import reader_global_landmask
 # from opendrift.readers import reader_landmask_custom
 from opendrift.models.oceandrift import OceanDrift
@@ -44,10 +47,11 @@ schism_native = reader_schism_native.Reader(
 	proj4 = proj_wgs84,
 	use_3d = False,
 	use_model_landmask = False)
-
 # schism_native.plot_mesh(variable = ['sea_floor_depth_below_sea_level']) # check reader was correctly loaded
 
-o.add_reader([reader_landmask,schism_native])
+cst_reader_wind = reader_constant.Reader( {'x_wind': 0, 'y_wind': 0,}) # add a constant reader just to check it's used in the LCS computations >> OK
+
+o.add_reader([reader_landmask,schism_native,cst_reader_wind])
 o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
 o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 
@@ -64,14 +68,16 @@ integration_time = timedelta(hours=12)  # integration time to compute the LCS (u
 # built-in LCS computation
 if True:
     lcs = o.calculate_ftle(
-        reader     = schism_native, # need to specify here or else it will the first one
+        reader     = schism_native, # reader used to define the seeding frame. Needs to have correct proj4 defined. If not specified it will use the first reader defined in o.add_reader()
         time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
         time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
         duration   = integration_time,    
-        delta      = 0.05, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
-        domain     = [171.0, 177.0, -39.0, -35.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
+        delta      = 10000, # spatial step in meters
+        domain     = [171.0, 175.0, -40.0, -38.0], # user-defined frame within reader domain, in native coordinates [xmin, xmax, ymin, ymax], if None use entire domain. If lon,lat it will be converted to <cartesian_epsg> first
         ALCS       = True,  # attractive LCS, run backwards in time
-        RLCS       = False) # repulsive LCS, run forward in time
+        RLCS       = False, # repulsive LCS, run forward in time
+        cartesian_epsg = 2193 ) # the reader has native lon/lat so we need to specify a cartesian coordinate system
+    
     # Convert LCS data to xarray 
     import xarray as xr
     data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
@@ -81,25 +87,32 @@ if True:
 
 # new green-cauchy tensors - still need to add squeezelines
 lcs_new,ds_lcs_new = o.calculate_green_cauchy_tensor(
+    reader     = schism_native,
     time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
     time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
     duration   = integration_time,    
-    delta      = 0.05, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
-    domain     = [171.0, 177.0, -39.0, -35.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
+    delta      = 10000, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
+    domain     = [171.0, 175.0, -40.0, -38.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
     ALCS       = True,  # attractive LCS, run backwards in time
-    RLCS       = False) # repulsive LCS, run forward in time
+    RLCS       = False, # repulsive LCS, run forward in time
+    cartesian_epsg = 2193)
 
-import pdb;pdb.set_trace()
+# note the ds_lcs_new xarray object can easily be saved to netcdf using ds_lcs_new.to_netcdf()
 
+# compare FTLE from built-in opendrift function, and FTLE from cLCS toolbox
+# 
 import matplotlib.pyplot as plt;plt.ion();plt.show()
 # example plots with xarray 
 fig, ax = plt.subplots()
-ds_lcs.ALCS.isel(time=0).plot(vmin=1e-7,vmax=1e-6)
+np.abs(ds_lcs).ALCS.isel(time=0).plot(vmin=1e-5,vmax=1.5e-4)
 ax.set_title('Built-in Method for LCS')
 
 fig, ax = plt.subplots()
-ds_lcs_new.ALCS.isel(time=0).plot(vmin=1e-7,vmax=2e-6)
+np.abs(ds_lcs_new).ALCS.isel(time=0).plot(vmin=1e-5,vmax=1.5e-4)
 ax.set_title('Duran methods for LCS')
+
+import pdb;pdb.set_trace()
+
 
 # >> patterns are the same, but LCS magnitude range is quite different 
 # 

@@ -24,7 +24,7 @@ o.set_config('drift:horizontal_diffusivity', 0.0) # Switch on horizontal diffusi
 
 # start time for LCS computation
 time_lcs_start  = [datetime(2024,1,1),datetime(2024,1,1) +timedelta(hours=12.)] # can a single value or list of values
-integration_time = timedelta(hours=6)  # integration time to compute the LCS (using position at t0 and t0+integration_time)
+integration_time = timedelta(hours=3.0)  # integration time to compute the LCS (using position at t0 and t0+integration_time)
 
 # o = o.clone()
 # Calculating attracting/backwards FTLE/LCS for integration time of T = 6 hours.
@@ -33,12 +33,11 @@ lcs = o.calculate_ftle(
     time       = time_lcs_start, # the start time of LCS computation ..can be a single value or list of values
     time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
     duration   = integration_time,    
-    delta      = 0.02, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
-    domain     = [173.0, 176., -42.0, -39.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
+    delta      = 100000, # spatial step in meters
+    domain     = [172.0, 177., -42.0, -38.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
     ALCS       = True,  # attractive LCS, run backwards in time
-    RLCS       = False) # repulsive LCS, run forward in time
-
-import pdb;pdb.set_trace()
+    RLCS       = False, # repulsive LCS, run forward in time
+    cartesian_epsg = 2193)
  
 # Convert LCS data to xarray 
 import xarray as xr
@@ -46,19 +45,26 @@ data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 
                'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),}  
 ds = xr.Dataset(data_vars=data_dict, 
                 coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
-ds.ALCS.isel(time=0).plot(vmin=1e-7,vmax=1e-5)
+
+#############################################################################################
+# Plot
+#############################################################################################
+import matplotlib.pyplot as plt;plt.ion();plt.show()
+fig, ax = plt.subplots()
+np.abs(ds.ALCS).isel(time=0).plot(vmin=1e-4,vmax=1e-3)
+fig, ax = plt.subplots()
+np.abs(ds.ALCS).isel(time=1).plot(vmin=1e-4,vmax=1e-3)
 
 #plot mean of LCS over time
-ds.ALCS.mean(dim= 'time').plot(vmin=1e-7,vmax=1e-5)
-
+fig, ax = plt.subplots()
+np.abs(ds.ALCS.mean(dim= 'time')).plot(vmin=1e-4,vmax=1e-3)
+ax.set_title('mean over time')
 ########################################################################3
 # add a cartopy map and plot LCS
 import cartopy.crs as ccrs
 import cartopy
 import cartopy.feature as cfeature
-import matplotlib.pyplot as plt
-plt.ion()
-plt.show()
+
 fig, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}) #central_longitude = 180 , center map around dateline (typical for NZ projects) (default is 0)
 ax.set_extent([lcs['lon'].min(),lcs['lon'].max(),lcs['lat'].min(),lcs['lat'].max()], crs=ccrs.PlateCarree()) # NZ
 ax.set_facecolor([ 0.59375 , 0.71484375, 0.8828125 ]) # cartopy blue

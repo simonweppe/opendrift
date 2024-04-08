@@ -4587,8 +4587,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                        duration=None,
                        z=0,
                        RLCS=True,
-                       ALCS=True):
-
+                       ALCS=True,
+                       cartesian_epsg = None):
+        
         if reader is None:
             logger.info('No reader provided, using first available:')
             reader = list(self.env.readers.items())[0][1]
@@ -4604,34 +4605,47 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
 
         if not isinstance(duration, timedelta):
             duration = timedelta(seconds=duration)
+        
+        # define seeding domain
+        if  not reader.proj.crs.to_epsg() == 4326 : #not np.logical_or(reader.proj.crs.to_epsg() == 4326) ,np.abs(reader.xmax)<360) : 
+            # reader coordinates system is projected/cartesian, so we can use it directly
+            # to define the seeding domain
+            if domain == None:
+                xs = np.arange(reader.xmin, reader.xmax, delta)
+                ys = np.arange(reader.ymin, reader.ymax, delta)
+            else:
+                xmin, xmax, ymin, ymax = domain
+                xs = np.arange(xmin, xmax, delta)
+                ys = np.arange(ymin, ymax, delta)
+        else :
+            # reader is natively in lon,lat, we need a user-defined coordinate system to use, 
+            # to prepare the seeding frame 
+            logger.info('reader native coordinate system is wgs4, applying user-defined <cartesian_epsg> to define seeding frame used in LCS computation')
+            if cartesian_epsg is None :
+                from pyproj import CRS
+                logger.error('You need to specify a <cartesian_epsg> in calculate_ftle() to define (cartesian) seeding grid')
+                import pdb;pdb.set_trace()
+            else:
+                # define the cartesian projection
+                proj = pyproj.Proj("EPSG:%s" % cartesian_epsg)
+                if domain == None: # use entire reader extents as domain
+                    # projected reader extents
+                    xmin,ymin = proj(reader.xmin,reader.ymin)
+                    xmax,ymax = proj(reader.xmax,reader.ymax)
+                else: # use user-defined domain
+                    xmin, xmax, ymin, ymax = domain
+                    if xmax<360: # if user defined the domain in lon,lat, we need to convert to cartesian
+                        xmin,ymin = proj(xmin,ymin)
+                        xmax,ymax = proj(xmax,ymax)
+                        logger.info('converting user-defined LCS domain from WGS84 (%s) to cartesian (%s)' % (domain,[xmin,xmax,ymin,ymax]))
+                xs = np.arange(xmin, xmax, delta)
+                ys = np.arange(ymin, ymax, delta)       
 
-        if domain == None:
-            xs = np.arange(reader.xmin, reader.xmax, delta)
-            ys = np.arange(reader.ymin, reader.ymax, delta)
-        else:
-            xmin, xmax, ymin, ymax = domain
-            xs = np.arange(xmin, xmax, delta)
-            ys = np.arange(ymin, ymax, delta)
-
+        # final seeding frame
         X, Y = np.meshgrid(xs, ys)
         lons, lats = proj(X, Y, inverse=True)
-
-        # need a special case for reader that have native lon,lat coordinates
-        if reader.proj.crs.to_epsg() == 4326: 
-            import pdb;pdb.set_trace()
-            print('reader coordinate system is wgs4 - need to specify a cartesian coords system to be used for LCS computation')
-            >> when reader has native wgs84 coordinates, we need to convert these to cartesian prior to doing the LCS computation
-            >> add a user-defined input proj_for_lcs = XX that will be used to convert coords with pyproj
-            >> enforce <delta> input in meters and also decide whether domain should be native WGS84 (better?) or input in cartesian 
-            
-            >> see distance_between_trajectories() from physics_methods.py ..might be a way not requiring user input
-            
-            geod = pyproj.Geod(ellps='WGS84')
-            azimuth_forward, a2, distance = geod.inv(lon1, lat1, lon2, lat2)
-            azimuth_forward, a2, distance = geod.inv(lonf, latf, lon[1:], lat[1:])
                                                                                                       
-                                                                                                          
-
+        # timing defintion                                                                                                
         if time is None:
             time = reader.start_time
         if not isinstance(time, list):
@@ -4661,7 +4675,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 o.run(duration=duration, time_step=-time_step)
                 b_x1, b_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
                                   o.history['lat'].T[-1].reshape(X.shape))
-
                 # Opendrift does something that when run backwards it inverts the order of items in the array,
                 # so we need to re-order.
                 # See here : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L335
@@ -4670,9 +4683,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 # (should be the same except when seeded on land)
                 # o.history['lon'].T[0].data - lons.ravel() >> large values 
                 # o.history['lon'].T[0].data[::-1] - lons.ravel() > close to zero
-
                 b_x1 = b_x1[::-1,::-1]
                 b_y1 = b_y1[::-1,::-1]
+
                 lcs['ALCS'][i, :, :] = ftle(b_x1 - X, b_y1 - Y, delta, T)
 
         lcs['RLCS'] = np.ma.masked_invalid(lcs['RLCS'])
@@ -4680,7 +4693,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         
         # Flipping ALCS left-right. Not sure why this is needed
         # 
-        # Simon Weppe:  below not needed anymore since the re-ordering was done before
+        # Edit Simon Weppe:  below not needed anymore since the re-ordering was done before
         # lcs['ALCS'] = lcs['ALCS'][:, ::-1, ::-1]
 
         return lcs
@@ -4726,7 +4739,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                        duration=None,
                        z=0,
                        RLCS=True,
-                       ALCS=True):
+                       ALCS=True,
+                       cartesian_epsg = None):
         '''
         Calculate Green-Cauchy Tensor
         
@@ -4755,14 +4769,42 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         if not isinstance(duration, timedelta):
             duration = timedelta(seconds=duration)
 
-        if domain == None:
-            xs = np.arange(reader.xmin, reader.xmax, delta)
-            ys = np.arange(reader.ymin, reader.ymax, delta)
-        else:
-            xmin, xmax, ymin, ymax = domain
-            xs = np.arange(xmin, xmax, delta)
-            ys = np.arange(ymin, ymax, delta)
+        # define seeding domain 
+        if  not reader.proj.crs.to_epsg() == 4326 : #not np.logical_or(reader.proj.crs.to_epsg() == 4326) ,np.abs(reader.xmax)<360) :  
+            # reader coordinates system is projected/cartesian, so we can use it 
+            # to define the seeding domain
+            if domain == None:
+                xs = np.arange(reader.xmin, reader.xmax, delta)
+                ys = np.arange(reader.ymin, reader.ymax, delta)
+            else:
+                xmin, xmax, ymin, ymax = domain
+                xs = np.arange(xmin, xmax, delta)
+                ys = np.arange(ymin, ymax, delta)
+        else :
+            # reader is natively in lon,lat, we need a user-defined coordinate system to use, 
+            # to prepare the seeding frame 
+            logger.info('reader native coordinate system is wgs4, applying user-defined <cartesian_epsg> to define seeding frame used in LCS computation')
+            if cartesian_epsg is None :
+                from pyproj import CRS
+                logger.error('You need to specify a <cartesian_epsg> in calculate_ftle() to define (cartesian) seeding grid')
+                import pdb;pdb.set_trace()
+            else:
+                # define the cartesian projection
+                proj = pyproj.Proj("EPSG:%s" % cartesian_epsg)
+                if domain == None: # use entire reader extents as domain
+                    # projected reader extents
+                    xmin,ymin = proj(reader.xmin,reader.ymin)
+                    xmax,ymax = proj(reader.xmax,reader.ymax)
+                else: # use user-defined domain
+                    xmin, xmax, ymin, ymax = domain
+                    if xmax<360: # if user defined the domain in lon,lat, we need to convert to cartesian
+                        xmin,ymin = proj(xmin,ymin)
+                        xmax,ymax = proj(xmax,ymax)
+                        logger.info('converting user-defined LCS domain from WGS84 (%s) to cartesian (%s)' % (domain,[xmin,xmax,ymin,ymax]))
+                xs = np.arange(xmin, xmax, delta)
+                ys = np.arange(ymin, ymax, delta)       
 
+        # final seeding frame
         X, Y = np.meshgrid(xs, ys)
         lons, lats = proj(X, Y, inverse=True)
 
@@ -4797,16 +4839,13 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 f_x1, f_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
                                   o.history['lat'].T[-1].reshape(X.shape))
                 
-                xnet,ynet = lat_lon_to_x_y(start_lon=X, 
-                                           end_lon = f_x1, 
-                                           start_lat=Y,
-                                           end_lat=f_y1) # xnet,ynet are net displacement in meters
-                # lcs['RLCS'][i, :, :] = ftle(f_x1 - X, f_y1 - Y, delta, T)
                 lcs['R_C11'][i, :, :], \
                 lcs['R_C12'][i, :, :], \
                 lcs['R_C22'][i, :, :], \
                 lcs['R_lda2'][i, :, :], \
-                lcs['RLCS'][i, :, :] =  GC_tensor(xnet,ynet, delta, T) # GC_tensor(f_x1 - X, f_y1 - Y, delta, T)
+                lcs['RLCS'][i, :, :] =  GC_tensor(f_x1 - X, f_y1 - Y, delta, T)
+                # lcs['RLCS'][i, :, :] = ftle(f_x1 - X, f_y1 - Y, delta, T)
+
             # Backwards
             if ALCS is True:
                 o = self.clone()
@@ -4816,27 +4855,19 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                 z=z)
                 o.run(duration=duration, time_step=-time_step)
                 b_x1, b_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
-                                  o.history['lat'].T[-1].reshape(X.shape))
-                import pdb;pdb.set_trace()
-                
+                                  o.history['lat'].T[-1].reshape(X.shape))                
                 # >> need to re-order matrices here see function calculate_ftle()
                 # only needed for ALCS when simulations are run backwards
                 b_x1 = b_x1[::-1,::-1]
                 b_y1 = b_y1[::-1,::-1]
 
-                # >> below , better to use pyproj to avoid any issues and remain consistent with code
-
-                xnet,ynet = lat_lon_to_x_y(start_lon=X, 
-                                           end_lon = b_x1, 
-                                           start_lat=Y,
-                                           end_lat=b_y1) # xnet,ynet are net displacement in meters
-                # lcs['ALCS'][i, :, :] = ftle(b_x1 - X, b_y1 - Y, delta, T)
                 lcs['A_C11'][i, :, :], \
                 lcs['A_C12'][i, :, :], \
                 lcs['A_C22'][i, :, :], \
                 lcs['A_lda2'][i, :, :], \
-                lcs['ALCS'][i, :, :] =  GC_tensor( xnet,ynet, delta, T) # GC_tensor(b_x1 - X, b_y1 - Y, delta, T)
-        
+                lcs['ALCS'][i, :, :] =  GC_tensor(b_x1 - X, b_y1 - Y, delta, T)
+                # lcs['ALCS'][i, :, :] = ftle(b_x1 - X, b_y1 - Y, delta, T)
+
         # it seems we can mask values where ALCS/RCLS == 1.0, and C**== 0, and lda2==0.5
         lcs['ALCS'][lcs['ALCS']==1.0] = np.nan
         lcs['A_C11'][lcs['A_C11']==0.0] = np.nan
@@ -4855,14 +4886,16 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             if var not in ['time', 'lon', 'lat']:
                 lcs[var] = np.ma.masked_invalid(lcs[var])
 
-        
         # Flipping ALCS left-right. Not sure why this is needed
         # It's not needed for RLCS
-        lcs['ALCS'] = lcs['ALCS'][:, ::-1, ::-1]
-        lcs['A_C11'] = lcs['A_C11'][:, ::-1, ::-1]
-        lcs['A_C12'] = lcs['A_C12'][:, ::-1, ::-1]
-        lcs['A_C22'] = lcs['A_C22'][:, ::-1, ::-1]
-        lcs['A_lda2'] = lcs['A_lda2'][:, ::-1, ::-1]
+        # 
+        # >> not needed anymore now that we use the correct lon/lat order for ALCS
+        # 
+        # lcs['ALCS'] = lcs['ALCS'][:, ::-1, ::-1]
+        # lcs['A_C11'] = lcs['A_C11'][:, ::-1, ::-1]
+        # lcs['A_C12'] = lcs['A_C12'][:, ::-1, ::-1]
+        # lcs['A_C22'] = lcs['A_C22'][:, ::-1, ::-1]
+        # lcs['A_lda2'] = lcs['A_lda2'][:, ::-1, ::-1]
         
         # Convert LCS data to xarray 
         import xarray as xr
@@ -4887,7 +4920,7 @@ def GC_tensor(X, Y, delta, duration):
 
     """Calculate Green Cauchy Tensors
     
-        Adapting code from cLCS : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
+        Adapted code from cLCS : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
 
         Input : 
         X,Y : particle displacement at end of simulation (i.e. X = Xfinal-X0, Y=Yfinal-Y0) 
@@ -4897,7 +4930,7 @@ def GC_tensor(X, Y, delta, duration):
         Outputs: 
         C11, C12, C22, lda2, ftle
         
-        ftle should be consistent with results from ftle()
+        ftle should be consistent with results from ftle() in physics_methods.py
     """
     
     # self.logger.info("--- Calculating the Cauchy-Green Tensor")
@@ -4930,38 +4963,3 @@ def GC_tensor(X, Y, delta, duration):
     ftle = np.log(lda2) / (2 * np.abs(duration))
 
     return C11, C12, C22, lda2, ftle
-
-
-def lat_lon_to_x_y(start_lon, end_lon, start_lat,end_lat):
-    # adapted from https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L343C1-L350C28
-    # converts lon,lat displacement to net X,Y displacement
-
-    [end_x, end_y] = sph2xy(end_lon, start_lon, end_lat, start_lat)
-    import pdb;pdb.set_trace()
-    # it seems like it's converted to km here, why ?? 
-    # end_x = end_x * 1e-3
-    # end_y = end_y * 1e-3
-
-    # end_x = end_x.reshape(self.Ny0, self.Nx0)
-    # end_y = end_y.reshape(self.Ny0, self.Nx0)
-    return end_x, end_y
-
-
-def sph2xy(lambda0, lambda1, theta0, theta1):
-    ############# SPH2XY Spherical to curvilinear spherical. ############
-    ##### where X,Y are in meters and LAMBDA0,THETA0 are in degrees#####
-    R = 6371 * 1e3
-    deg2rad = np.pi / 180
-    x = R * (lambda0 - lambda1) * deg2rad * np.cos(theta1 * deg2rad)
-    y = R * (theta0 - theta1) * deg2rad
-    return x, y
-
-
-def xy2sph(x, lambda1, y, theta1):
-    ############# XY2SPH Curvilinear spherical to spherical. ############
-    ##### where X,Y are in meters and LAMBDA1,THETA1 are in degrees#####
-    R = 6371 * 1e3
-    deg2rad = np.pi / 180
-    lambda0 = lambda1 + x / (R * np.cos(theta1 * deg2rad)) / deg2rad
-    theta0 = theta1 + y / R / deg2rad
-    return lambda0, theta0

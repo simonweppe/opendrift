@@ -352,7 +352,7 @@ class Reader(BaseReader,UnstructuredReader):
             
             # convert lon/lat to user-defined cartesian coordinate system
             proj_wgs84 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' # proj4 string for WGS84
-            transformer = pyproj.Transformer.from_proj(proj_from = proj_wgs84, proj_to = self.proj4)
+            transformer = pyproj.Transformer.from_proj(proj_from = proj_wgs84, proj_to = self.proj4,always_xy = True)
             x2, y2 = transformer.transform(self.x, self.y)
             self.x = x2.copy()
             self.y = y2.copy()
