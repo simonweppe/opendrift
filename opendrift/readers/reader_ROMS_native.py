@@ -81,11 +81,12 @@ class Reader(BaseReader, StructuredReader):
         self._mask_rho = None
         self._mask_u = None
         self._mask_v = None
+        self._zeta = None
+        self._angle = None
         self.land_binary_mask = None
         self.sea_floor_depth_below_sea_level = None
         self.z_rho_tot = None
         self.s2z_A = None
-        self.angle_xi_east = None
 
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
@@ -95,7 +96,7 @@ class Reader(BaseReader, StructuredReader):
             # Removing (temoprarily) land_binary_mask from ROMS-variables,
             # as this leads to trouble with linearNDFast interpolation
             'mask_rho': 'land_binary_mask',
-            'mask_psi': 'land_binary_mask',
+            # 'mask_psi': 'land_binary_mask',  # don't want two variables mapping together - raises error now
             'h': 'sea_floor_depth_below_sea_level',
             'zeta': 'sea_surface_height',
             # 'u_eastward' : 'x_sea_water_velocity', 
@@ -154,7 +155,7 @@ class Reader(BaseReader, StructuredReader):
                         dropvars = [v for v in ds.variables if v not in
                                     list(self.ROMS_variable_mapping.keys()) + gls_param +
                                     ['ocean_time', 'time', 'bulk_time', 's_rho',
-                                     'Cs_r', 'hc', 'angle', 'Vtransform']
+                                     'Cs_r', 'hc', 'Vtransform']
                                     and v[0:3] not in ['lon', 'lat', 'mas']]
                         logger.debug('Dropping variables: %s' % dropvars)
                         ds = ds.drop_vars(dropvars)
@@ -231,7 +232,7 @@ class Reader(BaseReader, StructuredReader):
             self.lat = self.lat.data
             if self.lat.ndim == 1:
                 self.lon, self.lat = np.meshgrid(self.lon, self.lat)
-                self.angle_xi_east = 0
+                # self.angle_xi_east = 0  # this was moved to the angle property
         else:
             raise ValueError(filename + ' does not contain lon/lat '
                              'arrays, please supply a grid-file: "gridfile=<grid_file>"')
@@ -361,9 +362,38 @@ class Reader(BaseReader, StructuredReader):
                     self._mask_v = self._mask_v.compute()
                 logger.info("Using mask_v for mask_v")
         return self._mask_v
+    
+    @property
+    def zeta(self):
+        """Sea surface height."""
+        if self._zeta is None:
+            if 'zeta' in self.Dataset.data_vars:
+                self._zeta = self.Dataset.variables['zeta']
+                logger.info("Using zeta for sea surface height")
+            else:
+                self._zeta = np.zeros(self.mask_rho.shape)
+                logger.info("No zeta found, using 0 array for sea surface height")
+        return self._zeta        
+    
+    @property
+    def angle(self):
+        """Grid angle if curvilinear."""
+        if self._angle is None:
+            if 'lat_rho' in self.Dataset.variables and self.lat.ndim == 1:
+                self._angle = 0
+            elif 'angle' in self.Dataset.data_vars:
+                self._angle = self.Dataset.variables['angle']
+                logger.info("Using angle from Dataset.")
+            # else:
+            #     self._angle = 0
+            #     logger.warning("No angle found, using 0 integer for angle.")
+
+            if self._angle is None:
+                raise ValueError('No angle between xi and east found')
+        return self._angle
 
     def get_variables(self, requested_variables, time=None,
-                      x=None, y=None, z=None):
+                      x=None, y=None, z=None, testing=False):
         start_time = datetime.now()
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
@@ -412,6 +442,17 @@ class Reader(BaseReader, StructuredReader):
         indy = np.arange(np.max([0, indy.min()-buffer]),
                             np.min([indy.max()+buffer, self.lon.shape[0]-1]))
 
+        # define indices
+        ixy = (indy,indx)
+        itxy = (indxTime,indy,indx)
+        
+        # use these same indices for all mask subsetting since if one is
+        # 3D they all should be
+        if self.mask_rho.ndim == 2:
+            imask = ixy
+        elif self.mask_rho.ndim == 3:
+            imask = itxy
+
         # Find depth levels covering all elements
         if z.min() == 0 or self.hc is None:
             indz = self.num_layers - 1  # surface layer
@@ -426,12 +467,27 @@ class Reader(BaseReader, StructuredReader):
 
             if self.z_rho_tot is None:
                 Htot = self.sea_floor_depth_below_sea_level
-                self.z_rho_tot = depth.sdepth(Htot, self.hc, self.Cs_r,
+                zeta = self.zeta[indxTime]
+                self.z_rho_tot = depth.sdepth(Htot, zeta, self.hc, self.Cs_r,
                                               Vtransform=self.Vtransform)
+                # z_rho is positive relative to mean sea level but z is
+                # 0 at the surface.
+                # Transform z_rho to match convention of z.
+                self.z_rho_tot -= np.asarray(zeta)[np.newaxis]
 
             H = self.sea_floor_depth_below_sea_level[indy, indx]
-            z_rho = depth.sdepth(H, self.hc, self.Cs_r,
+            zeta = self.zeta[itxy]
+            z_rho = depth.sdepth(H, zeta, self.hc, self.Cs_r,
                                  Vtransform=self.Vtransform)
+
+            # z_rho is positive relative to mean sea level but z is
+            # 0 at the surface.
+            # Transform z_rho to match convention of z.
+            z_rho -= np.asarray(zeta)[np.newaxis]
+
+            if (np.nanmax(z_rho) > 0).any():
+                logger.warning('z_rho is positive, but should be negative or 0.')
+
             # Element indices must be relative to extracted subset
             indx_el = np.clip(indx_el - indx.min(), 0, z_rho.shape[2]-1)
             indy_el = np.clip(indy_el - indy.min(), 0, z_rho.shape[1]-1)
@@ -456,36 +512,37 @@ class Reader(BaseReader, StructuredReader):
                                           -z.min()) + self.verticalbuffer)
             variables['z'] = np.array(self.zlevels[zi1:zi2])
         
-        # use these same indices for all mask subsetting since if one is
-        # 3D they all should be
-        if self.mask_rho.ndim == 2:
-            imask = (indy,indx)
-        elif self.mask_rho.ndim == 3:
-            imask = (indxTime,indy,indx)        
+        # define another set of indices
+        itzxy = (indxTime, indz, indy, indx)
             
-        def get_mask(mask_name, imask):
-            if mask_name in masks_for_loop:
-                mask = masks_for_loop[mask_name]
+        def get_mask(mask_name, imask, masks_store):
+            if mask_name in masks_store:
+                mask = masks_store[mask_name]
             else:
                 mask = getattr(self, mask_name)[imask]
             return mask, mask_name
 
-        masks_for_loop = {}  # To store maskes for various grids
+        masks_store = {}  # To store masks for various grids
         for par in requested_variables:
             varname = [name for name, cf in
                        self.ROMS_variable_mapping.items() if cf == par]
+            if len(varname) > 1:
+                raise ValueError("Multiple variables exist with standard name and "
+                                 "are present in reader. Either remove the duplicate mapping "
+                                 "or remove the variable from the reader."
+                                 "Variables: " + str(varname))
             var = self.Dataset.variables[varname[0]]
 
             if par == 'land_binary_mask':
                 variables[par] = self.land_binary_mask[imask]
             elif par == 'sea_floor_depth_below_sea_level':
-                variables[par] = self.sea_floor_depth_below_sea_level[indy, indx]
+                variables[par] = self.sea_floor_depth_below_sea_level[ixy]
             elif var.ndim == 2:
-                variables[par] = var[indy, indx]
+                variables[par] = var[ixy]
             elif var.ndim == 3:
-                variables[par] = var[indxTime, indy, indx]
+                variables[par] = var[itxy]
             elif var.ndim == 4:
-                variables[par] = var[indxTime, indz, indy, indx]
+                variables[par] = var[itzxy]
             else:
                 raise Exception('Wrong dimension of variable: ' +
                                 self.variable_mapping[par])
@@ -497,16 +554,16 @@ class Reader(BaseReader, StructuredReader):
 
                 # make sure that var has matching horizontal dimensions with the mask
                 # make sure coord names also match
-                if self.mask_rho.shape[-2:] == var.shape[-2:] and set(self.mask_rho.dims).issubset(var.dims):
-                    mask, mask_name = get_mask("mask_rho", imask)
-                elif self.mask_u.shape[-2:] == var.shape[-2:] and set(self.mask_u.dims).issubset(var.dims):
-                    mask, mask_name = get_mask("mask_u", imask)
-                elif self.mask_v.shape[-2:] == var.shape[-2:] and set(self.mask_v.dims).issubset(var.dims):
-                    mask, mask_name = get_mask("mask_v", imask)
+                if self.mask_rho.shape[-2:] == var.shape[-2:] and self.mask_rho.dims[-2:] == var.dims[-2:]:
+                    mask, mask_name = get_mask("mask_rho", imask, masks_store)
+                elif self.mask_u.shape[-2:] == var.shape[-2:] and self.mask_u.dims[-2:] == var.dims[-2:]:
+                    mask, mask_name = get_mask("mask_u", imask, masks_store)
+                elif self.mask_v.shape[-2:] == var.shape[-2:] and self.mask_v.dims[-2:] == var.dims[-2:]:
+                    mask, mask_name = get_mask("mask_v", imask, masks_store)
                 else:
                     raise Exception('No mask found for ' + par)
 
-                masks_for_loop[mask_name] = np.asarray(mask)
+                masks_store[mask_name] = np.asarray(mask)
                 mask = np.asarray(mask)
 
                 if mask.min() == 0:
@@ -639,29 +696,24 @@ class Reader(BaseReader, StructuredReader):
         variables['y'] = variables['y'].astype(np.float32)
         variables['time'] = nearestTime
 
-        if 'x_sea_water_velocity' in variables.keys() or \
-            'sea_ice_x_velocity' in variables.keys() or \
-            'x_wind' in variables.keys() and \
-            'x_sea_water_velocity' not in self.do_not_rotate and \
-            'sea_ice_x_velocity' not in self.do_not_rotate and \
-            'x_wind' not in self.do_not_rotate:
-            # We must rotate current vectors
-            if self.angle_xi_east is None:
-                if 'angle' in self.Dataset.variables:
-                    logger.debug('Reading angle between xi and east...')
-                    self.angle_xi_east = self.Dataset.variables['angle'][:]
-            if isinstance(self.angle_xi_east, int):
-                rad = self.angle_xi_east
+        if 'x_sea_water_velocity' in variables.keys() and \
+            'x_sea_water_velocity' not in self.do_not_rotate:
+            if isinstance(self.angle, int):
+                rad = self.angle
             else:
-                rad = self.angle_xi_east[indy, indx]
-                rad = np.ma.asarray(rad)
-            if 'x_sea_water_velocity' in variables.keys() and \
-                    'x_sea_water_velocity' not in self.do_not_rotate:
-                variables['x_sea_water_velocity'], \
-                    variables['y_sea_water_velocity'] = rotate_vectors_angle(
-                        variables['x_sea_water_velocity'],
-                        variables['y_sea_water_velocity'], rad)
-                logger.debug('Rotated x_sea_water_velocity and y_sea_water_velocity')
+                rad = np.ma.asarray(self.angle[indy, indx])
+            variables['x_sea_water_velocity'], \
+                variables['y_sea_water_velocity'] = rotate_vectors_angle(
+                    variables['x_sea_water_velocity'],
+                    variables['y_sea_water_velocity'], rad)
+            logger.debug('Rotated x_sea_water_velocity and y_sea_water_velocity')
+        
+        if 'sea_ice_x_velocity' in variables.keys() and \
+            'sea_ice_x_velocity' not in self.do_not_rotate:
+            if isinstance(self.angle, int):
+                rad = self.angle
+            else:
+                rad = np.ma.asarray(self.angle[indy, indx])
             if 'sea_ice_x_velocity' in variables.keys() and \
                     'sea_ice_x_velocity' not in self.do_not_rotate:
                 variables['sea_ice_x_velocity'], \
@@ -669,6 +721,12 @@ class Reader(BaseReader, StructuredReader):
                         variables['sea_ice_x_velocity'],
                         variables['sea_ice_y_velocity'], rad)
                 logger.debug('Rotated sea_ice_x_velocity and sea_ice_y_velocity')
+        
+        if 'x_wind' in variables.keys() and 'x_wind' not in self.do_not_rotate:
+            if isinstance(self.angle, int):
+                rad = self.angle
+            else:
+                rad = np.ma.asarray(self.angle[indy, indx])
             if 'x_wind' in variables.keys() and \
                     'x_wind' not in self.do_not_rotate:
                 variables['x_wind'], \
@@ -683,7 +741,10 @@ class Reader(BaseReader, StructuredReader):
 
         logger.debug('Time for ROMS native reader: ' + str(datetime.now()-start_time))
 
-        return variables
+        if testing:
+            return variables, masks_store
+        else:
+            return variables
 
 
 def rotate_vectors_angle(u, v, radians):
