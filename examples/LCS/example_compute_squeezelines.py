@@ -9,7 +9,6 @@ from opendrift.models.oceandrift import OceanDrift
 # Try to compute squeezelines from the ds_lcs_new
 import sys
 sys.path.append('/home/simon/code/github/opendrift_simon/examples/LCS')
-from cLCS_tools import compute_cLCS_squeezelines
 import xarray as xr
 
 ###############################
@@ -86,13 +85,18 @@ if False:
 
 
 #################################################################
-# Compute "squeezelines"
+# Compute Cauchy–Green strain tensorlines aka "squeezelines"
 #################################################################
 # see script to compute squeezeline here:
 # https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L12
 
+from cLCS_tools import compute_cLCS_squeezelines
 ds_lcs = xr.open_dataset('ds_lcs_new.nc')
-obj=compute_cLCS_squeezelines(ds_lcs,arclength = 20000)
+obj=compute_cLCS_squeezelines(ds_lcs,
+                              nxb=25, # nxb,nyb governs the density of computed CG tensorlines
+                              nyb=25,
+                              arclength = 30000, # in meters. i.e. the number of segments of each line
+                              )
 obj.run()
 # squeezelines are saved here obj.pxt, obj.pyt, obj.pzt
 import matplotlib.pyplot as plt;plt.ion();plt.show()
@@ -100,7 +104,15 @@ fig, ax = plt.subplots(1,1)
 ax.pcolormesh(ds_lcs['X'],ds_lcs['Y'],np.abs(ds_lcs).ALCS.isel(time=0))
 [ax.plot(x,y,'grey') for x,y in zip(obj.pxt,obj.pyt) ]
 ax.set_aspect('equal')
+ax.set_title('ALCS')
+
 import pdb;pdb.set_trace()
+fig, ax = plt.subplots(1,1)
+ax.pcolormesh(ds_lcs['X'],ds_lcs['Y'],np.abs(ds_lcs).RLCS.isel(time=0))
+[ax.plot(x,y,'grey') for x,y in zip(obj.pxt,obj.pyt) ]
+ax.set_aspect('equal')
+ax.set_title('RLCS')
+
 
 # plot as coloured lines
 from cLCS_tools import get_colourmap,plot_colourline

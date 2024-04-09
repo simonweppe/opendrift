@@ -53,9 +53,9 @@ cst_reader_wind = reader_constant.Reader( {'x_wind': 0, 'y_wind': 0,}) # add a c
 
 o.add_reader([reader_landmask,schism_native,cst_reader_wind])
 o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
-o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 o.set_config('general:coastline_action', 'previous') # prevent particles stranding, free-slip boundary
 o.set_config('drift:advection_scheme', 'runge-kutta4') # Note that Runge-Kutta here makes a difference to Euler scheme
+o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 
 ###################################################################################
 # Now compute LCS

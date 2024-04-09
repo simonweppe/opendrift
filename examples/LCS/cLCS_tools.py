@@ -1,5 +1,4 @@
-# https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py
-
+# Tools to compute Compute Cauchy–Green strain tensorlines aka "squeezelines"
 import numpy as np
 from scipy.integrate import solve_ivp
 from calendar import monthrange
@@ -13,35 +12,40 @@ logging.basicConfig(level=logging.INFO)
 
 class compute_cLCS_squeezelines(object):
     """
-    Loads averaged C-G, and compute squeezelines
+    Compute Cauchy-Green strain tensorline aka squeezelines()
 
     Parameters:
     -----------
-    dirr: str
-      directory where the climatological files are located, same dirr as used in mean_C
-    month_or_id: str
-      month to be analysed or id
+    ds_lcs : xarray.Dataset
+        xarray dataset output from `o.calculate_green_cauchy_tensor()`.
+    arclength : int, optional
+        Length of the arc along the streamline for LCS computation (default is 150).
+    nxb : int, optional
+        Number of grid points in the x-direction for squeezeline derivation (default is 25).
+    nyb : int, optional
+        Number of grid points in the y-direction for squeezeline derivation (default is 25).
+    
+    (nxb,nyb) will govern the squeezeline density, and arclength their length
+
+
+    Adapted from cLCS code :
+    https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py
+    
+    https://github.com/MireyaMMO/cLCS/tree/main
+ 
     """
 
     def __init__(
         self,
-        # dirr,
-        # month_or_id,
-        ds_lcs ,
+        ds_lcs , # xarray dataset output from o.calculate_green_cauchy_tensor()
         arclength=150,
         nxb=25,
         nyb=25,
-        climatology=True,
-        files=None,
     ):
-        # self.dirr = dirr
-        # self.month_or_id = month_or_id
         self.ds_lcs = ds_lcs
         self.arclength = arclength
         self.nxb = nxb
         self.nyb = nyb
-        self.climatology= climatology
-        self.files = files
         self.logger = logging
 
     def squeezeline(self, C11, C12, C22, xi, yi, ArcLength):
@@ -244,7 +248,7 @@ class compute_cLCS_squeezelines(object):
         # Here we have an xarray dataset so we can just average below
         
         # prepare inputs for squeezeline computations
-
+        import pdb;pdb.set_trace()
         C11 = self.ds_lcs.A_C11.mean(dim='time') 
         C22 = self.ds_lcs.A_C22.mean(dim='time') 
         C12 = self.ds_lcs.A_C12.mean(dim='time') 
@@ -253,11 +257,15 @@ class compute_cLCS_squeezelines(object):
         # y = np.arange(0, ymax*1e-3, self.dy0)
         # self.xspan, self.yspan = np.meshgrid(x,y)
         # >> where self.dx0,self.dy0 are in kilometers, see https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb 
-        xspan = self.ds_lcs.X[0,:]-self.ds_lcs.X[0,0] * 1e-3 # X-grid, relative to 0, in kilometers in Mireya's code
-        yspan = self.ds_lcs.Y[:,0]-self.ds_lcs.Y[0,0] * 1e-3 # Y-grid, relative to 0, in kilometers in Mireya's code
-        ArcLength = self.arclength # in meters
+        # xspan = (self.ds_lcs.X[0,:]-self.ds_lcs.X[0,0]) #* 1e-3 # X-grid, relative to 0, in kilometers in Mireya's code
+        # yspan = (self.ds_lcs.Y[:,0]-self.ds_lcs.Y[0,0]) #* 1e-3 # Y-grid, relative to 0, in kilometers in Mireya's code
+        
+        # here we just keep the original X,Y. This fits well with the LCS maps.
+        xspan = (self.ds_lcs.X[0,:]) #* 1e-3 # X-grid, in meters
+        yspan = (self.ds_lcs.Y[:,0]) #* 1e-3 # Y-grid, in meters 
+        ArcLength = self.arclength # in meters. i.e. the number of segments of each line
 
-        # now compute squeezelines
+        # now compute Cauchy–Green strain tensorlines aka "squeezelines"
         self.pxt, self.pyt = self.squeezeline(C11, C12, C22, xspan, yspan, [0, ArcLength])
         # clean squeezelines
         zeros = np.where((np.diff(self.pxt,1)[:,0]==0) | (np.diff(self.pyt,1)[:,0]==0))[0]
@@ -273,68 +281,6 @@ class compute_cLCS_squeezelines(object):
 
         from scipy.interpolate import griddata
         self.pzt = griddata(np.array([ self.ds_lcs.X.values.ravel(), self.ds_lcs.Y.values.ravel()]).T, logsqrtlda2.values.ravel(), (self.pxt, self.pyt), method='linear')
-
-        # original code
-        if False:
-            if isinstance(self.month_or_id, int):
-                self.month_or_id = "%02d" % self.month_or_id
-        
-            month_dirr = self.dirr + self.month_or_id + "/"
-            if self.climatology:
-                (
-                        _,
-                        _,
-                        _,
-                        _,
-                        _,
-                        _,
-                        C11total,
-                        C22total,
-                        C12total,
-                        xspan,
-                        yspan,
-                        count,
-                ) = pickle.load(open(f"{month_dirr}TOT-{self.month_or_id}.p", "rb"))
-                N = count
-                C11 = C11total / N
-                C22 = C22total / N
-                C12 = C12total / N
-                ArcLength = self.arclength
-                self.pxt, self.pyt = self.squeezeline(
-                        C11, C12, C22, xspan[-1, :], yspan[:, -1], [0, ArcLength]
-                )
-                zeros = np.where((np.diff(self.pxt,1)[:,0]==0) | (np.diff(self.pyt,1)[:,0]==0))[0]
-                self.pxt = np.delete(self.pxt, zeros, 0)
-                self.pyt = np.delete(self.pyt, zeros, 0)
-                pickle.dump([self.pxt, self.pyt], open(f"{month_dirr}/cLCS_{self.month_or_id}.p", "wb"))
-
-            else: 
-                if not self.files:
-                    self.files = sorted(glob.glob(f"{month_dirr}/LCS_{self.month_or_id}*-CG.p"))
-                for file in self.files:
-                    outfile = file.split('-')[0]
-                    (
-                                _,
-                                _,
-                                _,
-                                _,
-                                _,
-                                _,
-                                C11,
-                                C22,
-                                C12,
-                                xspan,
-                                yspan,
-                        ) = pickle.load(open(file, "rb"))
-                    ArcLength = self.arclength
-                    self.pxt, self.pyt = self.squeezeline(
-                            C11, C12, C22, xspan[-1, :], yspan[:, -1], [0, ArcLength]
-                    )
-                    zeros = np.where(np.diff(self.pxt,1)[:,0]==0)[0]
-                    self.pxt = np.delete(self.pxt, zeros, 0)
-                    self.pyt = np.delete(self.pyt, zeros, 0)
-                    pickle.dump([self.pxt, self.pyt], open(f"{outfile}.p", "wb"))
-
 
 def get_colourmap(name):
     from matplotlib.colors import ListedColormap, LinearSegmentedColormap
