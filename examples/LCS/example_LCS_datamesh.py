@@ -17,8 +17,10 @@ datamesh_regular_cons = reader_datamesh_regular_cons.Reader(
 
 o.add_reader([datamesh_regular_cons]) #
 o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
-o.set_config('general:coastline_action', 'previous') # prevent particles stranding
+o.set_config('general:coastline_action', 'previous') # prevent particles stranding, free-slip boundary
 o.set_config('drift:horizontal_diffusivity', 0.0) # Switch on horizontal diffusivity. Set this at 0.1 m2/s (https://journals.ametsoc.org/view/journals/atot/22/9/jtech1794_1.xml)
+o.set_config('drift:advection_scheme', 'runge-kutta4') # Note that Runge-Kutta here makes a difference to Euler scheme
+o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 
 # Now compute LCS
 
@@ -33,7 +35,7 @@ lcs = o.calculate_ftle(
     time       = time_lcs_start, # the start time of LCS computation ..can be a single value or list of values
     time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
     duration   = integration_time,    
-    delta      = 100000, # spatial step in meters
+    delta      = 2000, # spatial step in meters
     domain     = [172.0, 177., -42.0, -38.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
     ALCS       = True,  # attractive LCS, run backwards in time
     RLCS       = False, # repulsive LCS, run forward in time
@@ -46,6 +48,7 @@ data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 
 ds = xr.Dataset(data_vars=data_dict, 
                 coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
 
+import pdb;pdb.set_trace()
 #############################################################################################
 # Plot
 #############################################################################################

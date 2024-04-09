@@ -30,39 +30,87 @@ if False:
 
     o.add_reader([reader_landmask,schism_native,cst_reader_wind])
     o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
+    o.set_config('general:coastline_action', 'previous') # prevent particles stranding, free-slip boundary
+    o.set_config('drift:advection_scheme', 'runge-kutta4') # Note that Runge-Kutta here makes a difference to Euler scheme
     o.disable_vertical_motion()  #Deactivate any vertical processes/advection"""
 
     # start time for LCS computation
     time_lcs_start  = [schism_native.start_time,schism_native.start_time +timedelta(hours=12.)] # can a single value or list of values
     integration_time = timedelta(hours=12)  # integration time to compute the LCS (using position at t0 and t0+integration_time)
 
-    # new green-cauchy tensors - still need to add squeezelines
-    lcs_new,ds_lcs_new = o.calculate_green_cauchy_tensor(
+    # # new green-cauchy tensors - still need to add squeezelines
+    lcs_new,ds_lcs = o.calculate_green_cauchy_tensor(
         reader     = schism_native,
         time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
         time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
         duration   = integration_time,    
-        delta      = 10000, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
-        domain     = [172.0, 174.0, -40.0, -38.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
+        delta      = 3000, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
+        domain     = [170.0, 174.0, -40.0, -38.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
         ALCS       = True,  # attractive LCS, run backwards in time
-        RLCS       = False, # repulsive LCS, run forward in time
+        RLCS       = True, # repulsive LCS, run forward in time
         cartesian_epsg = 2193)
-    ds_lcs_new.to_netcdf('ds_lcs_new.nc')
-    import pdb;pdb.set_trace()
+    
+    # new green-cauchy tensors - still need to add squeezelines
+    lcs = o.calculate_ftle(
+        reader     = schism_native,
+        time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
+        time_step  = timedelta(minutes=15), # time step of individual opendrift simulations
+        duration   = integration_time,    
+        delta      = 3000, # spatial step (in meter or degrees depending of reader coords) at which the particles will be seeded within domain
+        domain     = [170.0, 174.0, -40.0, -38.0], # user-defined frame within reader domain [xmin, xmax, ymin, ymax], if None use entire domain
+        ALCS       = True,  # attractive LCS, run backwards in time
+        RLCS       = True, # repulsive LCS, run forward in time
+        cartesian_epsg = 2193)    
+    # Convert LCS data to xarray 
+    import xarray as xr
+    data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
+                'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),}  
+    ds_lcs1 = xr.Dataset(data_vars=data_dict, 
+                    coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
 
 
+    #################################################################
+    # quick check plots of FTLE
+    #################################################################
+    import matplotlib.pyplot as plt;plt.ion();plt.show()
+    fig, ax = plt.subplots(2,2)
+    np.abs(ds_lcs1).ALCS.isel(time=0).plot(ax=ax[0,0],vmin=1e-5,vmax=1.5e-4)
+    ax[0,0].set_title('attractive LCS - Built-in Method ')
+    np.abs(ds_lcs).ALCS.isel(time=0).plot(ax=ax[0,1],vmin=1e-5,vmax=1.5e-4)
+    ax[0,1].set_title('attractive LCS - Duran ')
+
+    np.abs(ds_lcs1).RLCS.isel(time=0).plot(ax=ax[1,0],vmin=1e-5,vmax=1.5e-4)
+    ax[1,0].set_title('repuslive LCS - Built-in Method ')
+    np.abs(ds_lcs).RLCS.isel(time=0).plot(ax=ax[1,1],vmin=1e-5,vmax=1.5e-4)
+    ax[1,1].set_title('repuslive LCS - Duran ')
+
+
+#################################################################
+# Compute "squeezelines"
+#################################################################
 # see script to compute squeezeline here:
-# 
 # https://github.com/MireyaMMO/cLCS/blob/main/cLCS/make_cLCS.py#L12
 
-
-ds_lcs_new = xr.open_dataset('ds_lcs_new.nc')
-obj=compute_cLCS_squeezelines(ds_lcs_new)
+ds_lcs = xr.open_dataset('ds_lcs_new.nc')
+obj=compute_cLCS_squeezelines(ds_lcs,arclength = 20000)
 obj.run()
+# squeezelines are saved here obj.pxt, obj.pyt, obj.pzt
+import matplotlib.pyplot as plt;plt.ion();plt.show()
+fig, ax = plt.subplots(1,1)
+ax.pcolormesh(ds_lcs['X'],ds_lcs['Y'],np.abs(ds_lcs).ALCS.isel(time=0))
+[ax.plot(x,y,'grey') for x,y in zip(obj.pxt,obj.pyt) ]
+ax.set_aspect('equal')
 import pdb;pdb.set_trace()
 
-# squeezelines are saved here obj.pxt, obj.pyt
-
-# now need to see how to plot correctly 
-# 
-# see code employed here : https://github.com/MireyaMMO/cLCS/blob/main/examples/01_cLCS_ROMS.ipynb
+# plot as coloured lines
+from cLCS_tools import get_colourmap,plot_colourline
+fig, ax = plt.subplots(1,1)
+cmap = get_colourmap('Duran_cLCS')
+# Plot all >> too heavy
+# [plot_colourline(x,y,z,cmap,ax=ax) for x,y,z in zip(obj.pxt,obj.pyt,obj.pzt) ]
+# plot one
+line_id = 10
+x,y,z = obj.pxt[line_id],obj.pyt[line_id],obj.pzt[line_id]
+z=np.abs(z)
+ax.plot(x,y)
+plot_colourline(x,y,z,cmap,ax=ax) 

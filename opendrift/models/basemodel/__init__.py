@@ -4723,10 +4723,19 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 b_y1 = b_y1[::-1,::-1]
 
                 lcs['ALCS'][i, :, :] = ftle(b_x1 - X, b_y1 - Y, delta, T)
-
+        
         lcs['RLCS'] = np.ma.masked_invalid(lcs['RLCS'])
         lcs['ALCS'] = np.ma.masked_invalid(lcs['ALCS'])
         
+        # self.env.__finalized__ = True
+        # landmask = self.env.get_environment(['land_binary_mask'],
+        #                                     lon=lons.ravel(), 
+        #                                     lat=lats.ravel(),
+        #                                     z=0.0*lons.ravel(),
+        #                                     time=time[0],
+        #                                     profiles=None)
+        # landmask = np.array(landmask[0].tolist()).squeeze().reshape(lons.shape)
+
         # Flipping ALCS left-right. Not sure why this is needed
         # 
         # Edit Simon Weppe:  below not needed anymore since the re-ordering was done before
@@ -4777,15 +4786,55 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                        RLCS=True,
                        ALCS=True,
                        cartesian_epsg = None):
-        '''
-        Calculate Green-Cauchy Tensor
-        
+        """
+        Calculate the Green-Cauchy tensor for Lagrangian Coherent Structures (LCS).
+
         Using the function calculate_ftle() as template and adding new code from 
         script here : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L352
-        
-        Mireya Montano / Rodrigo Duran
+        by  Rodrigo Duran,Mireya Montano.
 
-        '''
+        This method computes the Green-Cauchy tensor based on Lagrangian particle trajectories
+        derived from a opendrift object (that can have several readers). The tensor components 
+        are calculated for repulsive (RLCS) (forward-time simulations) and 
+        attractive (ALCS) LCS (backward-time simulations).
+
+        Parameters:
+        reader (str or pyproj.Proj): Data reader object or projection string (proj4). If None,
+            the first available reader in the environment is used.
+        delta (float): Spacing between seed points in the seeding domain (in meters).
+        domain (tuple): Tuple (xmin, xmax, ymin, ymax) defining the spatial domain for seeding.
+            If None, the domain is automatically determined based on the reader's extent.
+        time (datetime or list): Start time or list of times for which LCS is computed.
+        time_step (timedelta, or float): Time step used for numerical integration of trajectories.
+        duration (timedelta, or float): Duration of particle advection for LCS computations.
+        RLCS (bool): Whether to compute repulsive LCS (default: True).
+        ALCS (bool): Whether to compute attractive LCS (default: True).
+        cartesian_epsg (int): EPSG code of the Cartesian coordinate system to use for seeding
+            when the reader's native coordinate system is lon/lat (WGS84).
+
+        Returns:
+        tuple: A tuple containing two items:
+            - lcs (dict): Dictionary containing LCS components (RLCS and ALCS) and related metrics.
+            - ds_lcs (xarray.Dataset): Dataset containing LCS data organized as xarray variables
+            (RLCS, ALCS, C components, seeding coordinates, etc.).
+
+        Notes:
+        - This method utilizes Lagrangian trajectory integration to compute the Green-Cauchy tensor
+        components based on forward and backward advection of particle positions.
+        - The resulting LCS components are masked to handle invalid or NaN values.
+
+        Examples:
+        # Initialize LCS computation using default parameters
+        lcs, ds_lcs = calculate_green_cauchy_tensor()
+
+        # Compute LCS for a specific reader, time range, and domain
+        lcs, ds_lcs = calculate_green_cauchy_tensor(reader='EPSG:2193',
+                                                    time=datetime(2024, 4, 8, 12),
+                                                    duration=timedelta(minutes=15),
+                                                    domain=(-1000, 1000, -1000, 1000),
+                                                    cartesian_epsg=2193)
+        """
+        
         if reader is None:
             logger.info('No reader provided, using first available:')
             reader = list(self.env.readers.items())[0][1]
