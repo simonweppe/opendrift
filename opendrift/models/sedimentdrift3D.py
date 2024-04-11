@@ -535,15 +535,16 @@ def van_rijn1984(pdensity,wdensity,g,kinematic_viscosity,pdiameter):
     #     ws = ((10.*v)/d)*(((1+0.01*D_cube)**(1/2))-1)
     # elif D_cube > 16187:
     #     ws = (1.1*v*(D_star**(1.5)))/d
-    id1 = np.where(D_cube <= 16.187)
+
+    id1 = np.where(D_cube <= 16.187)[0]
     ws[id1] = (v[id1]*D_cube[id1])/(18*d[id1])
-
-    id2 = np.where((D_cube > 16.187) & (D_cube <= 16187))
-    ws[id2] = ((10.*v[id2])/d[id2])*(((1+0.01*D_cube[id2])**(1/2))-1)
-
-    id3 = np.where(D_cube > 16187)
-    ws[id3] = (1.1*v[id3]*(D_star[id3]**(1.5)))/d[id3]
     
+    id2 = np.where((D_cube > 16.187) & (D_cube <= 16187))[0]
+    ws[id2] = ((10.*v[id2])/d[id2])*(((1+0.01*D_cube[id2])**(1/2))-1)
+    
+    id3 = np.where(D_cube > 16187)[0]
+    ws[id3] = (1.1*v[id3]*(D_star[id3]**(1.5)))/d[id3]
+
     if (ws == np.nan).any():
         import pdb;pdb.set_trace()
         print('still some nans in van_rijn1984 terminal_velocity computation - check')

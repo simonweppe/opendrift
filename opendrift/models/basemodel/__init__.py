@@ -4727,6 +4727,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         lcs['RLCS'] = np.ma.masked_invalid(lcs['RLCS'])
         lcs['ALCS'] = np.ma.masked_invalid(lcs['ALCS'])
         
+        # attempt at masking land ..not functional yet
         # self.env.__finalized__ = True
         # landmask = self.env.get_environment(['land_binary_mask'],
         #                                     lon=lons.ravel(), 
