@@ -4803,7 +4803,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         reader (str or pyproj.Proj): Data reader object or projection string (proj4). If None,
             the first available reader in the environment is used.
         delta (float): Spacing between seed points in the seeding domain (in meters).
-        domain (tuple): Tuple (xmin, xmax, ymin, ymax) defining the spatial domain for seeding.
+        domain (list): [xmin, xmax, ymin, ymax] defining the spatial domain for seeding.
             If None, the domain is automatically determined based on the reader's extent.
         time (datetime or list): Start time or list of times for which LCS is computed.
         time_step (timedelta, or float): Time step used for numerical integration of trajectories.
@@ -4887,6 +4887,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                         xmin,ymin = proj(xmin,ymin)
                         xmax,ymax = proj(xmax,ymax)
                         logger.info('converting user-defined LCS domain from WGS84 (%s) to cartesian (%s)' % (domain,[xmin,xmax,ymin,ymax]))
+                        logger.info('Note domain must be defined as [Xmin,Xmax,Ymin,Ymax]')
                 xs = np.arange(xmin, xmax, delta)
                 ys = np.arange(ymin, ymax, delta)       
 

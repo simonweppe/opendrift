@@ -83,6 +83,7 @@ class compute_cLCS_squeezelines(object):
         yblim = np.linspace(yi.min(), yi.max(), Nyb + 1)  # ); % box limits
         xs0 = []
         ys0 = []
+
         for ixb in range(Nxb):
             for iyb in range(Nyb):
                 lda2b = np.copy(lda2)
@@ -248,7 +249,6 @@ class compute_cLCS_squeezelines(object):
         # Here we have an xarray dataset so we can just average below
         
         # prepare inputs for squeezeline computations
-        import pdb;pdb.set_trace()
         C11 = self.ds_lcs.A_C11.mean(dim='time') 
         C22 = self.ds_lcs.A_C22.mean(dim='time') 
         C12 = self.ds_lcs.A_C12.mean(dim='time') 
@@ -261,8 +261,10 @@ class compute_cLCS_squeezelines(object):
         # yspan = (self.ds_lcs.Y[:,0]-self.ds_lcs.Y[0,0]) #* 1e-3 # Y-grid, relative to 0, in kilometers in Mireya's code
         
         # here we just keep the original X,Y. This fits well with the LCS maps.
-        xspan = (self.ds_lcs.X[0,:]) #* 1e-3 # X-grid, in meters
-        yspan = (self.ds_lcs.Y[:,0]) #* 1e-3 # Y-grid, in meters 
+        # Note we take the first time if ds_lcs has multiple times
+        # 
+        xspan = (self.ds_lcs.isel(time=0).X[0,:]) #* 1e-3 # X-grid, in meters
+        yspan = (self.ds_lcs.isel(time=0).Y[:,0]) #* 1e-3 # Y-grid, in meters 
         ArcLength = self.arclength # in meters. i.e. the number of segments of each line
 
         # now compute Cauchy–Green strain tensorlines aka "squeezelines"

@@ -37,7 +37,7 @@ if False:
     time_lcs_start  = [schism_native.start_time,schism_native.start_time +timedelta(hours=12.)] # can a single value or list of values
     integration_time = timedelta(hours=12)  # integration time to compute the LCS (using position at t0 and t0+integration_time)
 
-    # # new green-cauchy tensors - still need to add squeezelines
+    # Compute green-cauchy tensors with new method
     lcs_new,ds_lcs = o.calculate_green_cauchy_tensor(
         reader     = schism_native,
         time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
@@ -49,7 +49,7 @@ if False:
         RLCS       = True, # repulsive LCS, run forward in time
         cartesian_epsg = 2193)
     
-    # new green-cauchy tensors - still need to add squeezelines
+    # compute FTLE with built-in method for comparison
     lcs = o.calculate_ftle(
         reader     = schism_native,
         time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
