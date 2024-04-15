@@ -110,7 +110,7 @@ class compute_cLCS_squeezelines(object):
         self.dx = np.abs(x[1] - x[0])
         y = self.yi[:, 0]
         self.dy = np.abs(y[1] - y[0])
-
+        
         self.Xmin = np.min(x)
         self.Ymin = np.min(y)
         self.Xmax = np.max(x)
@@ -280,9 +280,11 @@ class compute_cLCS_squeezelines(object):
         # https://github.com/MireyaMMO/cLCS/blob/main/cLCS/plotting_cLCS.py#L81C9-L81C38
         lda2 = self.ds_lcs.A_lda2.mean(dim='time')
         logsqrtlda2 = np.log( np.sqrt(self.ds_lcs.A_lda2).mean(dim='time') ) # in Mireya's code: z=np.log(sqrtlda2total / N)
-
         from scipy.interpolate import griddata
-        self.pzt = griddata(np.array([ self.ds_lcs.X.values.ravel(), self.ds_lcs.Y.values.ravel()]).T, logsqrtlda2.values.ravel(), (self.pxt, self.pyt), method='linear')
+        self.pzt = griddata(np.array([ self.ds_lcs.isel(time=0).X.values.ravel(), self.ds_lcs.isel(time=0).Y.values.ravel()]).T, 
+                                    logsqrtlda2.values.ravel(), 
+                                    (self.pxt, self.pyt), 
+                                    method='linear')
 
 def get_colourmap(name):
     from matplotlib.colors import ListedColormap, LinearSegmentedColormap
