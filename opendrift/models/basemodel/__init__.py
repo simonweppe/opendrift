@@ -4727,16 +4727,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         lcs['RLCS'] = np.ma.masked_invalid(lcs['RLCS'])
         lcs['ALCS'] = np.ma.masked_invalid(lcs['ALCS'])
         
-        # attempt at masking land ..not functional yet
-        # self.env.__finalized__ = True
-        # landmask = self.env.get_environment(['land_binary_mask'],
-        #                                     lon=lons.ravel(), 
-        #                                     lat=lats.ravel(),
-        #                                     z=0.0*lons.ravel(),
-        #                                     time=time[0],
-        #                                     profiles=None)
-        # landmask = np.array(landmask[0].tolist()).squeeze().reshape(lons.shape)
-
         # Flipping ALCS left-right. Not sure why this is needed
         # 
         # Edit Simon Weppe:  below not needed anymore since the re-ordering was done before
@@ -4973,6 +4963,25 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             if var not in ['time', 'lon', 'lat']:
                 lcs[var] = np.ma.masked_invalid(lcs[var])
 
+        # Mask landpoints
+        # There must be a better way to do this on xarray object
+        # using advanced indexing e.g.
+        # https://gist.github.com/robbibt/17bef639a26acf3c86091ac64b8c4bb6
+        if True:
+            logger.info('Masking land points for LCS ')
+            self.env.finalize()
+            landmask = self.env.get_environment(['land_binary_mask'],
+                                                lon=lons.ravel(), 
+                                                lat=lats.ravel(),
+                                                z=0.0*lons.ravel(),
+                                                time=time[0],
+                                                profiles=None)
+            landmask = np.array(landmask[0].tolist()).squeeze().reshape(lons.shape)
+            # tile along time dimension
+            landmask_all = np.tile(landmask,(len(time),1,1))
+            lcs['RLCS'][landmask_all==1] = np.nan
+            lcs['ALCS'][landmask_all==1] = np.nan
+
         # Flipping ALCS left-right. Not sure why this is needed
         # It's not needed for RLCS
         # 
@@ -5003,7 +5012,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                        }  
         ds_lcs = xr.Dataset(data_vars=data_dict, 
                         coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
-
+        import pdb;pdb.set_trace()
         return lcs, ds_lcs
     
 def GC_tensor(X, Y, delta, duration):
