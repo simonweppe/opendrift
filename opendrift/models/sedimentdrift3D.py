@@ -19,6 +19,7 @@ import numpy as np
 import logging; logger = logging.getLogger(__name__)
 from opendrift.models.oceandrift import OceanDrift
 from opendrift.models.oceandrift import Lagrangian3DArray
+from opendrift.config import CONFIG_LEVEL_ESSENTIAL, CONFIG_LEVEL_BASIC, CONFIG_LEVEL_ADVANCED
 
 class SedimentElement(Lagrangian3DArray):
     # Lagrangian3DArray has already the variables terminal_velocity, and wind_drift_factor
@@ -61,6 +62,7 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
     required_variables = {
         'x_sea_water_velocity': {'fallback': 0},
         'y_sea_water_velocity': {'fallback': 0},
+        'sea_surface_height': {'fallback': 0},
         'upward_sea_water_velocity': {'fallback': 0},
         'x_wind': {'fallback': 0},
         'y_wind': {'fallback': 0},
@@ -71,7 +73,8 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
         'sea_surface_wave_mean_period_from_variance_spectral_density_second_frequency_moment': {'fallback': 0},
         'land_binary_mask': {'fallback': None},
         'ocean_vertical_diffusivity': {'fallback': 0.02, 'profiles': True},
-        'sea_floor_depth_below_sea_level': {'fallback': 0},
+        'ocean_mixed_layer_thickness': {'fallback': 50},
+        'sea_floor_depth_below_sea_level': {'fallback': 10000},
         # 'sea_water_temperature': {'fallback': 15., 'profiles': True},
         # 'sea_water_salinity': {'fallback': 35., 'profiles': True},
         'sea_water_temperature': {'fallback': 15.},
@@ -91,16 +94,16 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
             'drift:resuspension': {'type': 'bool', 'default': False,
                 # 'min': 0, 'max': 1e10, 'units': '-',
                 'description': 'switch to activate/deactivate resuspension',
-                'level': self.CONFIG_LEVEL_ESSENTIAL},
+                'level': CONFIG_LEVEL_ESSENTIAL},
 
             'processes:update_terminal_velocity': {'type': 'bool', 'default': False,
                 'description': 'switch to activate "online" terminal velocity calculation based on ambient settings at each time step.\
                  If set to False, terminal_velocity is kept constant with value provided at seeding.',
-                'level': self.CONFIG_LEVEL_ADVANCED},
+                'level': CONFIG_LEVEL_ADVANCED},
 
             'processes:terminal_velocity_method': {'type': 'enum', 'enum': ['dietrich','stokes','zhiyao','ahrens','komar','van_rijn1984','soulsby1997'], 'default': 'zhiyao',
                 'description': 'selection of equations used for calculating the particle''s terminal_velocity',
-                'level': self.CONFIG_LEVEL_ADVANCED},
+                'level': CONFIG_LEVEL_ADVANCED},
                 })
 
         # By default, sediments do strand at coastline
@@ -408,16 +411,57 @@ def qkhfs( w, h ):
 
 #######################################################################################################################
 # methods for computing terminal_velocity of particles
+# 
+# Adapted from code here:
+# https://github.com/zsylvester/notebooks/blob/master/grain_settling.ipynb
+# https://svn.oss.deltares.nl/repos/openearthtools/trunk/matlab/general/phys_fun/fallvelocity.m
+# https://svn.oss.deltares.nl/repos/openearthtools/trunk/matlab/general/phys_fun/sediment_settling_velocity.m
 #######################################################################################################################
 
 def  stokes(pdiameter,g,pdensity,wdensity,dynamic_viscosity):
     # ... according to Stokes' Law
-    if(pdiameter > 0.0002):
-        print("Particle diameter > 200 µm! \n Stokes' Law will overestimate sinking velocity! \n Use another method!")
-    sinking = (pdiameter**2*g*(pdensity-wdensity)) / (18*dynamic_viscosity)
+    # 
+    # Ok for silt to clay size range, no cohesion assumed
+    # 
+    # see https://github.com/zsylvester/notebooks/blob/master/grain_settling.ipynb for sanity checks
+    # 
+    import pdb;pdb.set_trace()
+
+    if(pdiameter > 0.0002).any():
+        print("Some particle diameter > 200 µm! \n %s micros \n Stokes' Law will overestimate sinking velocity! \n Use another method!" % (pdiameter*1.e6))
+    sinking = ((pdiameter**2)*g*(pdensity-wdensity)) / (18*dynamic_viscosity)
     if sinking<0:
         sinking = np.nan
     return sinking
+
+def turbulent(pdiameter,g,pdensity,wdensity,dynamic_viscosity) : #(rop,rof,d,visc,C2):
+    # For large grains - pebbles, cobbles - this effect is so strong that viscous 
+    # forces become insignificant and turbulent drag dominates
+    
+    # https://github.com/zsylvester/notebooks/blob/master/grain_settling.ipynb
+
+        # R = (rop-rof)/rof 
+        # w = (4*R*9.81*d/(3*C2))**0.5
+        # return w
+        C2 = 1
+        R = (pdensity-wdensity)/wdensity  # submerged specific gravity
+        w = (4*R*g*pdiameter/(3*C2))**0.5
+        return w
+
+def ferguson_church(pdiameter,g,pdensity,wdensity,dynamic_viscosity): #rop,rof,d,visc,C1,C2):
+        # https://github.com/zsylvester/notebooks/blob/master/grain_settling.ipynb
+        #
+        #  Ferguson, R.I., & Church, M. (2004). A Simple Universal Equation for Grain Settling Velocity. 
+        # Journal of Sedimentary Research, 74, 933-937.
+
+        # R = (rop-rof)/rof 
+        # w = (R*9.81*d**2)/(C1*visc/rof+(0.75*C2*R*9.81*d**3)**0.5)
+        # return w
+        C1 = 18
+        C2 = 1
+        R = (pdensity-wdensity)/wdensity  # submerged specific gravity
+        w = (R*g*pdiameter**2)/(C1*dynamic_viscosity/wdensity+(0.75*C2*R*g*pdiameter**3)**0.5)
+        return w
 
 def dietrich(pdensity,wdensity,g,pdiameter,kinematic_viscosity,factor,p):
     # ... according to Dietrich 1982
@@ -519,6 +563,9 @@ def van_rijn1984(pdensity,wdensity,g,kinematic_viscosity,pdiameter):
     #   kinematic_viscosity : kinematic viscosity of water  [m2 s-1 ]
     #   pdiameter : grain diameter [m]
     # 
+    #  See https://repository.tudelft.nl/islandora/object/uuid%3Aea12eb20-aee3-4f58-99fb-ebc216e98879
+    # page 3-11
+    # 
     v = kinematic_viscosity # - kinematic viscosity of water
     ps = pdensity # kg m-3 - grain density
     p = wdensity # kg m-3 - water density
@@ -529,21 +576,25 @@ def van_rijn1984(pdensity,wdensity,g,kinematic_viscosity,pdiameter):
     D_star = (((g*(s-1))/(v**2))**(1/3))*d 
     D_cube = D_star**3
     ws = np.nan*np.ones(d.shape[0])
-    # if D_cube <= 16.187:
-    #     ws = (v*D_cube)/(18*d)
-    # elif D_cube > 16.187 and D_cube <= 16187:
-    #     ws = ((10.*v)/d)*(((1+0.01*D_cube)**(1/2))-1)
-    # elif D_cube > 16187:
-    #     ws = (1.1*v*(D_star**(1.5)))/d
-
-    id1 = np.where(D_cube <= 16.187)[0]
-    ws[id1] = (v[id1]*D_cube[id1])/(18*d[id1])
     
-    id2 = np.where((D_cube > 16.187) & (D_cube <= 16187))[0]
+    # the different regimes can be subset in different way:
+    # using D_start : 
+    # id1 = np.where(D_cube <= 16.187)[0]
+    # id2 = np.where((D_cube > 16.187) & (D_cube <= 16187))[0]
+    # id3 = np.where(D_cube > 16187)[0]
+    # 
+    # here we stick with the d50 threshold conditions
+    id1 = np.where(d <= 100.e-6)[0]
+    ws[id1] = (v[id1]*D_cube[id1])/(18*d[id1]) # equivalent to Stokes
+    # ws[id1] = (s[id1]-1) *g*(d[id1]**2) / (18*kinematic_viscosity[id1]) # different way of writing the same thing
+    
+    id2 = np.where(np.logical_and(d > 100.e-6,d <= 1000.e-6))[0]
     ws[id2] = ((10.*v[id2])/d[id2])*(((1+0.01*D_cube[id2])**(1/2))-1)
+    # ws[id2] = ((10.*v[id2])/d[id2])* ( ( 1+0.01* (((s[id2]-1)*g*d[id2]**3)/kinematic_viscosity**2) ) **.5 -1) # different way of writing the same thing
     
-    id3 = np.where(D_cube > 16187)[0]
+    id3 = np.where(d > 1000.e-6)[0]    
     ws[id3] = (1.1*v[id3]*(D_star[id3]**(1.5)))/d[id3]
+    # ws[id3] = 1.1* ((s[id1]-1) * g * d[id3])**.5   # different way of writing the same thing
 
     if (ws == np.nan).any():
         import pdb;pdb.set_trace()
