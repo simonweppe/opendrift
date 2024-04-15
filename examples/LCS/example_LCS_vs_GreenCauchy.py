@@ -68,7 +68,7 @@ integration_time = timedelta(hours=12)  # integration time to compute the LCS (u
 # o = o.clone()
 # Calculating attracting/backwards FTLE/LCS for integration time of T = 6 hours.
 # built-in LCS computation
-if True:
+if False:
     lcs = o.calculate_ftle(
         reader     = schism_native, # reader used to define the seeding frame. Needs to have correct proj4 defined. If not specified it will use the first reader defined in o.add_reader()
         time       = time_lcs_start[0], # the start time of LCS computation ..can be a single value or list of values
@@ -87,6 +87,7 @@ if True:
     ds_lcs = xr.Dataset(data_vars=data_dict, 
                     coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
     import pdb;pdb.set_trace()
+    
 # new green-cauchy tensors - still need to add squeezelines
 lcs_new,ds_lcs_new = o.calculate_green_cauchy_tensor(
     reader     = schism_native,
