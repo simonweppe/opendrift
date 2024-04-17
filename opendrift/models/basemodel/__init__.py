@@ -5012,7 +5012,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                        }  
         ds_lcs = xr.Dataset(data_vars=data_dict, 
                         coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
-        import pdb;pdb.set_trace()
         return lcs, ds_lcs
     
 def GC_tensor(X, Y, delta, duration):
