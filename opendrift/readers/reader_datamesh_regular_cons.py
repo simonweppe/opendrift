@@ -174,6 +174,7 @@ class Reader(reader_netCDF_CF_generic.Reader):
     
     def _get_variables_interpolated_(self, variables, profiles, profiles_depth,
                                      time, reader_x, reader_y, z):
+        print(time)
         # overloads the version from <structured.py>
         # 
         # Here we interpolate constituents to particle positions then generate tide signals 

@@ -412,7 +412,7 @@ class Reader(BaseReader,UnstructuredReader):
                 data = tide_pred.h
                 logger.debug('reading 2D data from unstructured reader %s' % (par))
             elif par is 'land_binary_mask':
-                data = 0*var # allocate with 0 for now, check will be done using self.mesh_polygon
+                data = 0.*var # allocate with 0 for now, check will be done using self.mesh_polygon
                 logger.debug('reading 2D data from unstructured reader %s (set all to 0)' % (par))
             else:
                 raise ValueError('Wrong dimension of %s: %i' %
@@ -850,7 +850,7 @@ class Reader(BaseReader,UnstructuredReader):
         full array (incl. out of mesh positions) is re-generated with correct masking 
 
         """
-        ind_covered = np.where(self.covers_positions(x, y))[0]
+        ind_covered = np.where(self.covers_positions(x, y))[0] # this will call covers_positions() from unstructured.py
         return ind_covered ,x[ind_covered], y[ind_covered]
 
     def apply_logarithmic_current_profile(self,env,z):
@@ -1153,8 +1153,12 @@ class ReaderBlockUnstruct():
 
 
     def covers_positions(self, x, y, z=None):
-        '''Check if given positions are covered by this reader block.'''
+        '''Check if given positions are covered by this reader block.
+           
+           *** Note ***
+           >> This is different from the covers_positions() of the reader class
         
+        '''
         indices = np.where((x >= self.x.min()) & (x <= self.x.max()) &
                            (y >= self.y.min()) & (y <= self.y.max()))[0]
 

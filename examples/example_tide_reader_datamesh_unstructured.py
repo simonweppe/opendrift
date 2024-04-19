@@ -14,7 +14,7 @@ o = OceanDrift(loglevel=0)  # Set loglevel to 0 for debug information
 
 # reader_landmask = reader_global_landmask.Reader() 
 schism_datamesh_cons = reader_datamesh_schism_cons.Reader(
-	filename = 'calypso-tidalcons-hauraki-v1',)  # native coordinate system is lon/lat
+	filename = '/home/simon/calypso_science/tide_grids/calypso-tidalcons-hauraki-v1',)  # native coordinate system is lon/lat
 # this will include the mesh boundary polygons and interior islands
 
 import pdb;pdb.set_trace()

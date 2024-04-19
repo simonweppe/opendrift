@@ -918,7 +918,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             land_reader_name = self.env.priority_list['land_binary_mask'][0]
             land_reader = self.env.readers[land_reader_name]
             o = self
-
         land = o.env.get_environment(['land_binary_mask'],
                                      lon=lon,
                                      lat=lat,
@@ -938,7 +937,14 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         longrid = longrid.ravel()
         latgrid = latgrid.ravel()
         # Remove grid-points not covered by this reader
-        latgrid_covered = land_reader.covers_positions(longrid, latgrid)[0]
+        # latgrid_covered = land_reader.covers_positions(longrid, latgrid)[0] = original code
+        # 
+        # edit simon - cater for cases covers_positions return only one array rather than tuple
+        if isinstance(land_reader.covers_positions(longrid, latgrid),tuple):
+            latgrid_covered = land_reader.covers_positions(longrid, latgrid)[0]
+        else:
+            latgrid_covered = land_reader.covers_positions(longrid, latgrid)
+
         longrid = longrid[latgrid_covered]
         latgrid = latgrid[latgrid_covered]
         landgrid = o.env.get_environment(['land_binary_mask'],
@@ -960,7 +966,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         indices = indices.ravel()
         lon[land != 0] = oceangridlons[indices]
         lat[land != 0] = oceangridlats[indices]
-
         return lon, lat
 
     @require_mode(mode=Mode.Ready)
@@ -4825,7 +4830,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                                     domain=(-1000, 1000, -1000, 1000),
                                                     cartesian_epsg=2193)
         """
-        
         if reader is None:
             logger.info('No reader provided, using first available:')
             reader = list(self.env.readers.items())[0][1]
@@ -4977,6 +4981,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                                 time=time[0],
                                                 profiles=None)
             landmask = np.array(landmask[0].tolist()).squeeze().reshape(lons.shape)
+            landmask[np.isnan(landmask)]=1 # in case some nans are returned
             # tile along time dimension
             landmask_all = np.tile(landmask,(len(time),1,1))
             lcs['RLCS'][landmask_all==1] = np.nan
