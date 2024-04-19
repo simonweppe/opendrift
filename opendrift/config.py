@@ -58,6 +58,27 @@ class Configurable:
             if k.startswith(prefix) and self._config[k]['level'] in level
         }
         return configspec
+    
+    ########################################################################
+    def set_configspec(self, configspec):
+        '''
+        Sets the entire config using the config object <configspec> returned 
+        by configspec = o.get_configspec()
+
+        Example usage :
+         
+        config_obj = o.get_configspec()
+        config['general:time_step_minutes']['value'] = 120
+        o.set_configspec() 
+        
+        '''
+        for key,sub_dict in configspec.items() :
+            # here is key is expected to be 'general:seafloor_action' for example
+            value =  sub_dict['value']
+            self.set_config(key,value) 
+            logger.info(f'set_config(\'{key}\', {value})')
+        return configspec
+    ########################################################################    
 
     def set_config(self, key, value):
         if isinstance(value, dict):  # Recursive call with items in dictionary
