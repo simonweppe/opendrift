@@ -4680,8 +4680,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                         xmax,ymax = proj(xmax,ymax)
                         logger.info('converting user-defined LCS domain from WGS84 (%s) to cartesian (%s)' % (domain,[xmin,xmax,ymin,ymax]))
                 xs = np.arange(xmin, xmax, delta)
-                ys = np.arange(ymin, ymax, delta)       
-
+                ys = np.arange(ymin, ymax, delta) 
+        logger.debug('seeding frame for LCS computation (cartesian) [xmin=%s,xmax=%s,ymin=%s,ymax=%s]' % (xs[0],xs[-1],ys[0],ys[-1]))
         # final seeding frame
         X, Y = np.meshgrid(xs, ys)
         lons, lats = proj(X, Y, inverse=True)
@@ -4736,6 +4736,17 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         # 
         # Edit Simon Weppe:  below not needed anymore since the re-ordering was done before
         # lcs['ALCS'] = lcs['ALCS'][:, ::-1, ::-1]
+        
+        if False : # added s.weppe. We do the conversion to netcdf file in wrapper
+            # Convert LCS data to xarray dataset
+            import xarray as xr
+            data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
+                        'RLCS': (('time', 'lat', 'lon'), lcs['RLCS'].data,{'units': '-', 'description': 'FTLE repulsive LCS'}),
+                        'X' : (( 'lat', 'lon'), X,{'units': 'm', 'description': 'cartesian seeding x-coord'} ),
+                        'Y' : (( 'lat', 'lon'), Y,{'units': 'm', 'description': 'cartesian seeding y-coord'} ),
+                        }  
+            ds_lcs = xr.Dataset(data_vars=data_dict, 
+                            coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
 
         return lcs
 
@@ -4768,7 +4779,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
 
 
 #############################
-# New functions Simon Weppe
+# New functions for LCS computations - added s.weppe
 #############################
 
     def calculate_green_cauchy_tensor(self,
@@ -4798,8 +4809,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         reader (str or pyproj.Proj): Data reader object or projection string (proj4). If None,
             the first available reader in the environment is used.
         delta (float): Spacing between seed points in the seeding domain (in meters).
-        domain (list): [xmin, xmax, ymin, ymax] defining the spatial domain for seeding.
+        domain (list): [xmin, xmax, ymin, ymax] defining the spatial domain for seeding (same coords system as <reader>).
             If None, the domain is automatically determined based on the reader's extent.
+
         time (datetime or list): Start time or list of times for which LCS is computed.
         time_step (timedelta, or float): Time step used for numerical integration of trajectories.
         duration (timedelta, or float): Duration of particle advection for LCS computations.
@@ -4883,8 +4895,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                         logger.info('converting user-defined LCS domain from WGS84 (%s) to cartesian (%s)' % (domain,[xmin,xmax,ymin,ymax]))
                         logger.info('Note domain must be defined as [Xmin,Xmax,Ymin,Ymax]')
                 xs = np.arange(xmin, xmax, delta)
-                ys = np.arange(ymin, ymax, delta)       
-
+                ys = np.arange(ymin, ymax, delta)  
+        logger.debug('seeding frame for LCS computation (cartesian) [xmin=%s,xmax=%s,ymin=%s,ymax=%s]' % (xs[0],xs[-1],ys[0],ys[-1]))
         # final seeding frame
         X, Y = np.meshgrid(xs, ys)
         lons, lats = proj(X, Y, inverse=True)
@@ -4998,7 +5010,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         # lcs['A_C22'] = lcs['A_C22'][:, ::-1, ::-1]
         # lcs['A_lda2'] = lcs['A_lda2'][:, ::-1, ::-1]
         
-        # Convert LCS data to xarray 
+        # Convert LCS data to xarray dataset
         import xarray as xr
         data_dict = {  'ALCS': (('time', 'lat', 'lon'), lcs['ALCS'].data,{'units': '-', 'description': 'FTLE attractive LCS'} ),
                        'A_C11': (('time', 'lat', 'lon'), lcs['A_C11'].data,{'units': '-', 'description': 'C11 constant attractive'} ),
