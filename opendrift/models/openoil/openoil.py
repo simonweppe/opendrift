@@ -294,10 +294,6 @@ class OpenOil(OceanDrift):
         },
     }
 
-    # The depth range (in m) which profiles shall cover
-    required_profiles_z_range = [-20, 0]
-
-    max_speed = 1.3  # m/s
 
     # Default colors for plotting
     status_colors = {
@@ -494,6 +490,7 @@ class OpenOil(OceanDrift):
         self._set_config_default('drift:vertical_mixing', True)
         self._set_config_default('drift:current_uncertainty', 0.05)
         self._set_config_default('drift:wind_uncertainty', 0.5)
+        self._set_config_default('drift:max_speed', 1.3)
 
     def update_surface_oilfilm_thickness(self):
         '''The mass of oil is summed within a grid of 100x100
@@ -677,7 +674,6 @@ class OpenOil(OceanDrift):
         self.timer_end('main loop:updating elements:oil weathering')
 
     def prepare_run(self):
-
         if self.oil_weathering_model == 'noaa':
             self.noaa_mass_balance = {}
             # Populate with seeded mass spread on oiltype.mass_fraction
@@ -709,6 +705,8 @@ class OpenOil(OceanDrift):
         except Exception as e:
             logger.warning('Could not load max water content file')
             print(e)
+
+        super(OpenOil, self).prepare_run()
 
     def oil_weathering_noaa(self):
         '''Oil weathering scheme adopted from NOAA PyGNOME model:

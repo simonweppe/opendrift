@@ -550,6 +550,12 @@ class Variables(ReaderDomain):
 
         super().__init__()
 
+    def prepare(self, extent, start_time, end_time, max_speed):
+        """Prepare reader for given simulation coverage in time and space."""
+        logger.debug('Nothing more to prepare for ' + self.name)
+        pass  # to be overriden by specific readers
+
+
     def activate_environment_mapping(self, mapping_name):
         if mapping_name not in self.environment_mappings:
             raise ValueError('Available environment mappings: ' + str(self.environment_mappings))
@@ -749,7 +755,7 @@ class Variables(ReaderDomain):
             z = z.copy() * np.ones(x.shape)
         z = z.copy()[ind_covered]
 
-        logger.debug('Fetching variables from ' + self.name)
+        logger.debug(f'Fetching variables from {self.name} covering {len(ind_covered)} elements')
         self.timer_start('reading')
 
         # Filter derived variables
@@ -866,7 +872,7 @@ class Variables(ReaderDomain):
 
             profiles: List of variable names that should be returned for the range in `profiles_depth`.
 
-            profiles_depth: A range [z-start, z-end] for which to return values for profile-variables. The exact z-depth are given by the reader and returned as `z` variable in `env_profiles`.
+            profiles_depth: Profiles variables will be retrieved from surface and down to this depth. The exact z-depth are given by the reader and returned as `z` variable in `env_profiles`.
 
             time: datetime or None, time at which data are requested.
                 Can be None (default) if reader/variable has no time

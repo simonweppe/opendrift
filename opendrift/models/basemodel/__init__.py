@@ -232,6 +232,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
 
         super().__init__()
 
+        self.profiles_depth = None
+
         self.show_continuous_performance = False
 
         self.origin_marker = None  # Dictionary to store named seeding locations
@@ -243,8 +245,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         # List to store GeoJSON dicts of seeding commands
         self.seed_geojson = []
 
-        self.env = Environment(self.required_variables,
-                               self.required_profiles_z_range, self._config)
+        self.env = Environment(self.required_variables, self._config)
 
         # Make copies of dictionaries so that they are private to each instance
         self.status_categories = ['active']  # Particles are active by default
@@ -418,6 +419,9 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 'description': 'Add horizontal diffusivity (random walk)',
                 'level': CONFIG_LEVEL_BASIC
             },
+            'drift:profiles_depth': {'type': 'float', 'default': 50, 'min': 0, 'max': None,
+                'level': CONFIG_LEVEL_ADVANCED, 'units': 'meters', 'description':
+                'Environment profiles will be retrieved from surface and down to this depth'},
             'drift:wind_uncertainty': {
                 'type': 'float',
                 'default': 0,
@@ -601,8 +605,10 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         '''Make readers from a file containing list of URLs or paths to netCDF datasets'''
         self.env.add_readers_from_file(*args, **kwargs)
 
+    # To be overloaded by sublasses, but this parent method must be called
     def prepare_run(self):
-        pass  # to be overloaded when needed
+        # Copy profile_depth from config
+        self.profiles_depth = self.get_config('drift:profiles_depth')
 
     def store_present_positions(self, IDs=None, lons=None, lats=None):
         """Store present element positions, in case they shall be moved back"""
@@ -670,8 +676,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                      self.time,
                                      self.elements.lon,
                                      self.elements.lat,
-                                     self.elements.z,
-                                     None)
+                                     self.elements.z)
             self.environment.land_binary_mask = en.land_binary_mask
 
         if i == 'stranding':  # Deactivate elements on land, but not in air
@@ -705,11 +710,14 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         if 'sea_floor_depth_below_sea_level' not in self.env.priority_list:
             return
 
-        if not hasattr(self, 'environment') or not hasattr(
-                self.environment, 'sea_surface_height'):
-            logger.warning('Seafloor check not being run because sea_surface_height is missing. '
+        if not hasattr(self, 'environment'):
+            logger.warning('Seafloor check not being run because environment is missing. '
                            'This will happen the first time the function is run but if it happens '
                            'subsequently there is probably a problem.')
+            return
+
+        if not hasattr(self.environment, 'sea_surface_height'):
+            logger.warning('Seafloor check not being run because sea_surface_height is missing. ')
             return
 
         # the shape of these is different than the original arrays
@@ -718,9 +726,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         sea_surface_height = self.sea_surface_height()
 
         # Check if any elements are below sea floor
-        # But remember that the water column is the sea floor depth + sea surface height + parameter Dcrit
-        Dcrit = self.get_config('general:seafloor_action_dcrit')
-        ibelow = self.elements.z < -(sea_floor_depth + sea_surface_height + Dcrit)
+        # But remember that the water column is the sea floor depth + sea surface height
+        ibelow = self.elements.z < -(sea_floor_depth + sea_surface_height)
         below = np.where(ibelow)[0]
 
         if len(below) == 0:
@@ -757,10 +764,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
     @abstractproperty
     def required_variables(self):
         """Any trajectory model implementation must list needed variables."""
-
-    @abstractproperty
-    def required_profiles_z_range(self):
-        """Any trajectory model implementation must list range or return None."""
 
     def test_data_folder(self):
         import opendrift
@@ -922,8 +925,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                      lon=lon,
                                      lat=lat,
                                      z=0 * lon,
-                                     time=land_reader.start_time,
-                                     profiles=None)[0]['land_binary_mask']
+                                     time=land_reader.start_time)[0]['land_binary_mask']
         if land.max() == 0:
             logger.info('All points are in ocean')
             return lon, lat
@@ -951,8 +953,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                          lon=longrid,
                                          lat=latgrid,
                                          z=0 * longrid,
-                                         time=land_reader.start_time,
-                                         profiles=None)[0]['land_binary_mask']
+                                         time=land_reader.start_time)[0]['land_binary_mask']
         if landgrid.min() == 1 or np.isnan(landgrid.min()):
             logger.warning('No ocean pixels nearby, cannot move elements.')
             return lon, lat
@@ -1106,8 +1107,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                     self.time = time[0]
                 env, env_profiles, missing = \
                     self.env.get_environment(['sea_floor_depth_below_sea_level'],
-                                         time=time[0], lon=lon, lat=lat,
-                                         z=0*lon, profiles=None)
+                                         time=time[0], lon=lon, lat=lat, z=0*lon)
             elif seafloor_fallback is not None:
                 env = {
                     'sea_floor_depth_below_sea_level':
@@ -2061,7 +2061,8 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                          self.elements.lon,
                                          self.elements.lat,
                                          self.elements.z,
-                                         self.required_profiles)
+                                         self.required_profiles,
+                                         self.profiles_depth)
 
                 self.store_previous_variables()
 
@@ -4714,27 +4715,18 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                 time=t + duration,
                                 z=z)
                 o.run(duration=duration, time_step=-time_step)
-                b_x1, b_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
-                                  o.history['lat'].T[-1].reshape(X.shape))
-                # Opendrift does something that when run backwards it inverts the order of items in the array,
-                # so we need to re-order.
-                # See here : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L335
-                # 
-                # This can be checked comparing initial position saved in opendrift object versus seeding positions 
-                # (should be the same except when seeded on land)
-                # o.history['lon'].T[0].data - lons.ravel() >> large values 
-                # o.history['lon'].T[0].data[::-1] - lons.ravel() > close to zero
-                b_x1 = b_x1[::-1,::-1]
-                b_y1 = b_y1[::-1,::-1]
-
+                # when run in backwards mode, opendrift inverts the order of lon/lat items in the array
+                # so we flip the array  to be consistent with initial positions, and compute correct displacements
+                # See similar comment : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L335
+                b_x1, b_y1 = proj(o.history['lon'].T[-1][::-1].reshape(X.shape),
+                                  o.history['lat'].T[-1][::-1].reshape(X.shape))
                 lcs['ALCS'][i, :, :] = ftle(b_x1 - X, b_y1 - Y, delta, T)
         
         lcs['RLCS'] = np.ma.masked_invalid(lcs['RLCS'])
         lcs['ALCS'] = np.ma.masked_invalid(lcs['ALCS'])
         
         # Flipping ALCS left-right. Not sure why this is needed
-        # 
-        # Edit Simon Weppe:  below not needed anymore since the re-ordering was done before
+        # >> not needed anymore now that re-ordering is done above
         # lcs['ALCS'] = lcs['ALCS'][:, ::-1, ::-1]
         
         if False : # added s.weppe. We do the conversion to netcdf file in wrapper
@@ -4947,12 +4939,11 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                                 time=t + duration,
                                 z=z)
                 o.run(duration=duration, time_step=-time_step)
-                b_x1, b_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
-                                  o.history['lat'].T[-1].reshape(X.shape))                
-                # >> need to re-order matrices here see function calculate_ftle()
-                # only needed for ALCS when simulations are run backwards
-                b_x1 = b_x1[::-1,::-1]
-                b_y1 = b_y1[::-1,::-1]
+                # when run in backwards mode, opendrift inverts the order of lon/lat items in the array
+                # so we flip the array  to be consistent with initial positions, and compute correct displacements
+                # See similar comment : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L335
+                b_x1, b_y1 = proj(o.history['lon'].T[-1][::-1].reshape(X.shape),
+                                  o.history['lat'].T[-1][::-1].reshape(X.shape))                
 
                 lcs['A_C11'][i, :, :], \
                 lcs['A_C12'][i, :, :], \
@@ -5002,7 +4993,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         # Flipping ALCS left-right. Not sure why this is needed
         # It's not needed for RLCS
         # 
-        # >> not needed anymore now that we use the correct lon/lat order for ALCS
+        # >> not needed anymore now that we use re-ordered the (lon,lat) earlier for ALCS
         # 
         # lcs['ALCS'] = lcs['ALCS'][:, ::-1, ::-1]
         # lcs['A_C11'] = lcs['A_C11'][:, ::-1, ::-1]
