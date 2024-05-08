@@ -4975,7 +4975,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         # using advanced indexing e.g.
         # https://gist.github.com/robbibt/17bef639a26acf3c86091ac64b8c4bb6
         if True:
-            logger.info('Masking land points for LCS ')
+            logger.debug('Masking land points for LCS ')
             self.env.finalize()
             landmask = self.env.get_environment(['land_binary_mask'],
                                                 lon=lons.ravel(), 
@@ -5040,7 +5040,7 @@ def GC_tensor(X, Y, delta, duration):
     """
     
     # self.logger.info("--- Calculating the Cauchy-Green Tensor")
-    print("--- Calculating Cauchy-Green Tensor")
+    logger.debug("--- Calculating Cauchy-Green Tensor")
     #  original code
     # dxdy, dxdx = np.gradient(end_x, self.dy0, self.dx0)
     # dydy, dydx = np.gradient(end_y, self.dy0, self.dx0)
