@@ -70,7 +70,7 @@ class Reader(BaseReader,UnstructuredReader):
             name        :   name of reader - optional, taken as filename if not input
                             o.readers['name']
 
-            proj4       :   proj4 string defining spatial reference system. 
+            proj4       :   proj4 string defining spatial reference system of the model output coordinates. 
                             find string here : https://spatialreference.org/ref/epsg/
                             
                             Note : if the (x,y) in model output files are in wgs84, and the user want to run in 3D, 
@@ -198,9 +198,13 @@ class Reader(BaseReader,UnstructuredReader):
         # Define projection of input data
         if proj4 is not None: #  user has provided a projection apriori
             self.proj4 = proj4
-        else:                 # no input assumes latlon
-            logger.debug('Lon and lat are 1D arrays, assuming latlong projection: proj4 = ''+proj=latlong''')
-            self.proj4 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' #'+proj=latlong'
+        else:                 # no input for proj4
+            self.proj4 = None
+            logger.error('No projection <proj4> was defined when initializing the reader')
+            logger.error('Please specify <proj4> of model outputs coordinates (i.e. SCHISM_hgrid_node_x,SCHISM_hgrid_node_y)')            
+            # dont assume latlong if proj4 is not specified
+            # logger.debug('Lon and lat are 1D arrays, assuming latlong projection: proj4 = ''+proj=latlong''')
+            # self.proj4 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' #'+proj=latlong'
 
         # check if 3d data is available and if we should use it
         self.use_3d = use_3d
@@ -232,7 +236,12 @@ class Reader(BaseReader,UnstructuredReader):
         # Find x, y and z coordinates
         for var_name in self.dataset.variables:
 
-            if var_name in ['SCHISM_hgrid_face_x','SCHISM_hgrid_face_y','SCHISM_hgrid_edge_x','SCHISM_hgrid_edge_y']:
+            if var_name in ['SCHISM_hgrid_face_x',
+                            'SCHISM_hgrid_face_y',
+                            'SCHISM_hgrid_edge_x',
+                            'SCHISM_hgrid_edge_y',
+                            'longitude', # make sure we skip any longitude/latitude added to file, i.e. use only (SCHISM_hgrid_node_x,SCHISM_hgrid_node_y)
+                            'latitude']:
                 # all these variables have the same standard name projection_x_coordinate,projection_y_coordinate
                 # we need to only use :
                 # SCHISM_hgrid_node_x as projection_x_coordinate
@@ -340,16 +349,20 @@ class Reader(BaseReader,UnstructuredReader):
 
         self.x = x
         self.y = y
-
+        
         if not (self.x>360.).any() and self.use_3d :
-            logger.debug('Native (x,y) coordinates in SCHISM outputs are lon/lat (WGS84)')
+            logger.debug('Native coordinates in SCHISM outputs (SCHISM_hgrid_node_x,SCHISM_hgrid_node_y) are in lon/lat (WGS84)')
             logger.debug('Converting to user-defined proj4 defined when initialising reader : %s' % self.proj4)
             # The 3D interpolation doesnt work directly if the x,y coordinates in native netcdf files
             # are not cartesian but geographic. In that case, when doing 3D interpolation and tree search, 
             # the vertical distance unit is meter, while the horizontal distance unit is degrees, which will return
             # erroneous "closest" nodes in ReaderBlockUnstruct,interpolate()
+            # 
             # self.use_3d = False # force use of 2D for which the nearest node method will work
-            
+            if self.proj4 is None :
+                logger.error('No projection <proj4> was specified when initializing reader')
+                logger.error('If native coordinates are lon/lat, then specify the coords system to be used to convert these to cartesian')
+
             # convert lon/lat to user-defined cartesian coordinate system
             proj_wgs84 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' # proj4 string for WGS84
             transformer = pyproj.Transformer.from_proj(proj_from = proj_wgs84, proj_to = self.proj4,always_xy = True)
@@ -1337,7 +1350,7 @@ class ReaderBlockUnstruct():
             # check for infinite values
             if np.isinf(self.z_3d).any() :
                 self.z_3d[np.where(np.isinf(self.z_3d))] = 15.0 #limit to +15.0m i.e. above msl
-
+            
             self.block_KDtree_3d = cKDTree(np.vstack((self.x_3d,self.y_3d,self.z_3d)).T) 
             # do we need copy_data=True ..probably not since "data" [self.x_3d,self.y_3d,self.z_3d] 
             # will not change without the KDtree being recomputedplt
@@ -1452,13 +1465,11 @@ class ReaderBlockUnstruct():
                     ##############################
                     # PLOT CHECKS
                     if False:
-                        import matplotlib.pyplot as plt
+                        import matplotlib.pyplot as plt;plt.ion();plt.show()
                         fig = plt.figure()
                         ax = fig.add_subplot(111, projection='3d')
                         ax.scatter(self.x_3d[i[0]].data.tolist(),self.y_3d[i[0]].data.tolist(),self.z_3d[i[0]].data.tolist(),c='r', marker='o')
                         ax.scatter(x[0:1],y[0:1],z[0:1],c='g', marker='o')
-                        plt.ion()
-                        plt.show()
                     ##############################3
 
                 dist[dist<DMIN]=DMIN
