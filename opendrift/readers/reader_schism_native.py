@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 from datetime import datetime
-from future.utils import iteritems
+# from future.utils import iteritems # not needed anymore
 from netCDF4 import Dataset, MFDataset, num2date
 from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import cKDTree #cython-based KDtree for quick nearest-neighbor search
@@ -1417,7 +1417,7 @@ class ReaderBlockUnstruct():
         if profiles is not []:
             # profiles_dict = {'z': self.z} # probably not valid...
             profiles_dict = {'z': profiles_depth} # consistent with what is done in <unstructured.py> line 70
-        for varname, data in iteritems(self.data_dict):
+        for varname, data in self.data_dict.items(): # same syntax as in structured.py, used to be iteritems(self.data_dict)
             nearest = False
             # land mask 
             if varname == 'land_binary_mask':
