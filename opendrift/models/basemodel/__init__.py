@@ -1222,7 +1222,6 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         }
         if 'seafloor' in default_seed and default_seed['seafloor'] is True:
             default_seed['z'] = 'seafloor'
-# <<<<<<< HEAD
         default_seed = {
             **default_seed,
             **kwargs
@@ -1231,13 +1230,13 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             **default_seed, 'time': [str(timespan[0]),
                                      str(timespan[1])],
             'radius': [float(radius[0]), float(radius[-1])],
-            'number': number
+            'number': float(number) # make sure it's not a int64
         }
+        
         # convert array to string in case of array input to seed cone
         for key in properties.keys():
             if isinstance(properties[key], np.ndarray):
                 properties[key] = np.array2string(properties[key])
-
         f = geojson.Feature(geometry=geo, properties=properties)
         self.seed_geojson.append(f)
 
