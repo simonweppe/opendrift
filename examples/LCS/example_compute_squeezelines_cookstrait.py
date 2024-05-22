@@ -127,7 +127,9 @@ if True:
     # squeezelines are saved here obj.pxt, obj.pyt, obj.pzt
     fig, ax = plt.subplots(1,1)
     ax.pcolormesh(ds_lcs['X'].isel(time=0),ds_lcs['Y'].isel(time=0),np.abs(ds_lcs).ALCS.mean(dim='time'))
-    [ax.plot(x,y,'grey') for x,y in zip(obj.pxt,obj.pyt) ]
+    # [ax.plot(x,y,'grey') for x,y in zip(obj.pxt,obj.pyt) ]
+    # only plot line for which pzt is not nan
+    [ax.plot(x,y,'grey') for x,y,z in zip(obj.pxt,obj.pyt,obj.pzt)  if ~np.isnan(z).any() ]
     ax.set_aspect('equal')
     ax.set_title('ALCS')
     
