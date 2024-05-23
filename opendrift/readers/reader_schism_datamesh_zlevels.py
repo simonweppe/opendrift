@@ -301,6 +301,8 @@ class Reader(ReaderSchismNative):
 
         >> here we need to ingest the z coordinates and decide if we go for 
         a 3D KDtree pre-computed only once at beginning of simulation, then just re-use that ? every time ?
+        or use a 2D KDtree and look for closest vertical levels above/below  ? 
+        To test
     
         # Run constructor of parent Reader class
         super(Reader, self).__init__()
