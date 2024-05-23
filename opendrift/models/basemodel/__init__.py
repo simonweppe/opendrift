@@ -4869,7 +4869,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             logger.info('reader native coordinate system is wgs4, applying user-defined <cartesian_epsg> to define seeding frame used in LCS computation')
             if cartesian_epsg is None :
                 from pyproj import CRS
-                logger.error('You need to specify a <cartesian_epsg> in calculate_ftle() to define (cartesian) seeding grid')
+                logger.error('You need to specify a <cartesian_epsg> in calculate_green_cauchy_tensor() to define (cartesian) seeding grid')
                 import pdb;pdb.set_trace()
             else:
                 # define the cartesian projection
@@ -4880,7 +4880,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                     xmax,ymax = proj(reader.xmax,reader.ymax)
                 else: # use user-defined domain
                     xmin, xmax, ymin, ymax = domain
-                    if xmax<360: # if user defined the domain in lon,lat, we need to convert to cartesian
+                    if xmax<=360: # if user defined the domain in lon,lat, we need to convert to cartesian
                         xmin,ymin = proj(xmin,ymin)
                         xmax,ymax = proj(xmax,ymax)
                         logger.info('converting user-defined LCS domain from WGS84 (%s) to cartesian (%s)' % (domain,[xmin,xmax,ymin,ymax]))
