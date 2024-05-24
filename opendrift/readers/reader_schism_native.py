@@ -181,7 +181,14 @@ class Reader(BaseReader,UnstructuredReader):
             logger.info('Opening dataset: ' + filestr)
             if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
                 logger.info('Opening files with open_mfdataset')
-                self.dataset = xr.open_mfdataset(filename,chunks={'time': 1})
+                self.dataset = xr.open_mfdataset(filename,chunks={'time': 1}).drop_duplicates(dim = 'time', keep='last')
+                # Note the <.drop_duplicates(dim = 'time', keep='last')> is particulary important
+                # when running with daily averaged data.
+                # If data was downloaded in daily files, each daily-averaged file will have 2 timesteps [t0, t0+1day]; 
+                # the second step [t0+1day] is not actually a daily average, but just the first single step [t0+1day],
+                # We dont want to use that, but instead the data from the next daily file which has the same timestamp (hence keep='last') 
+                 
+              
                 # in case of issues with file ordering consider inputting an explicit filelist 
                 # to reader, for example:
                 # 
