@@ -286,6 +286,44 @@ class compute_cLCS_squeezelines(object):
                                     (self.pxt, self.pyt), 
                                     method='linear')
 
+    def to_netcdf(self,fname = 'squeeze.nc'):
+        '''
+          Save squeezelines to netcdf file using xarray()
+          we get rid of any line with nan or inf
+
+        '''
+        # convert onject data to xarray 
+        import xarray as xr
+        data_dict = {   'X': (('n_line', 'length_line',), obj.pxt,{'units': '-'}),
+                        'Y': (('n_line', 'length_line',), obj.pyt,{'units': '-'}),
+                        'Z': (('n_line', 'length_line',), obj.pzt,{'units': '-'}),
+                        }  
+        ds_lines = xr.Dataset(data_vars=data_dict,  
+                            coords={'n_line': (('n_line'), range(0,obj.pxt.shape[0])), 'length_line': (('length_line'), range(0,obj.pxt.shape[1])) })
+        
+        ds_lines['Z'] = ds_lines.Z.where(~np.isinf(ds_lines.Z),np.nan) # replace inf with nans
+        # get rid of lines that have any nans
+        ds_lines_clean = ds_lines.dropna(dim="n_line", how="any")
+        ds_lines_clean.to_netcdf(fname)
+
+        self.ds_xarray = ds_lines_clean # save xarray to object
+
+    def plot_squeezelines(self):
+
+        # # to plot simply do :
+        # 
+        # ds_lines_clean = xr.open_dataset(fname)
+        # fig, ax = plt.subplots(1,1)
+        # for ii in range(0,ds_lines_clean.dims['n_line']) : 
+        #     ax.plot(ds_lines_clean.isel(n_line=ii).X,ds_lines_clean.isel(n_line=ii).Y,'red')
+        
+        import matplotlib.pyplot as plt;plt.ion();plt.show()
+        fig, ax = plt.subplots(1,1)
+        for ii in range(0,self.ds_xarray.dims['n_line']) : 
+            ax.plot(self.ds_xarray.isel(n_line=ii).X,self.ds_xarray.isel(n_line=ii).Y,'grey')
+
+
+
 def get_colourmap(name):
     from matplotlib.colors import ListedColormap, LinearSegmentedColormap
     if name == "Zissou":
