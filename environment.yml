@@ -33,3 +33,5 @@ dependencies:
   - adios_db
   - copernicusmarine
   - pip
+  - oceantide
+  - futures
