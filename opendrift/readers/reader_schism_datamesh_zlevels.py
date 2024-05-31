@@ -144,8 +144,19 @@ class Reader(BaseReader,UnstructuredReader):
         #         self.use_3d = False
 
         if self.use_3d and ('hvelu' not in self.dataset.variables or 'hvelv' not in self.dataset.variables):
-            logger.debug('No 3D velocity data in file - cannot find variable ''hvelu, or hvelv'' ')
+            logger.error('No 3D velocity data in file - cannot find variable ''hvelu, or hvelv'' ')
         
+        # we fill the nan data in the vertical with latest good values
+        # logger.info('Filling nan with latest non-nan values in 3D velocity arrays')
+        # self.dataset['hvelu'] = self.dataset.hvelu.ffill(dim='lev',limit=None)
+        # self.dataset['hvelv'] = self.dataset.hvelv.ffill(dim='lev',limit=None)
+        
+        # we fill the nan data in the vertical with 0.0
+        # particle will be flagged as below seabed anyway
+        logger.info('Filling nan with latest 0.0 values in 3D velocity arrays')
+        self.dataset['hvelu'] = self.dataset.hvelu.fillna(0)
+        self.dataset['hvelv'] = self.dataset.hvelv.fillna(0)
+
         # we dont need zcor here as vertical levels are constant 
 
         # elif self.use_3d and 'hvel' in self.dataset.variables:
@@ -315,6 +326,7 @@ class Reader(BaseReader,UnstructuredReader):
         self.reader_KDtree = self._build_ckdtree_(self.x,self.y) 
 
         # compute CKDtree of (static) 2D nodes using _build_ckdtree_() from unstructured.py
+        # also output tiled version of X,Y,Z 
         logger.debug('Building CKDtree of static 3D nodes for nearest-neighbor search')
         self.reader_KDtree = self.build_3d_kdtree() 
 
@@ -404,7 +416,7 @@ class Reader(BaseReader,UnstructuredReader):
         variables = {'x': self.x, 'y': self.y, 'z': 0.*self.y,
                      'time': nearestTime}
         
-        import pdb;pdb.set_trace()
+
         # extracts the full slices of requested_variables at time indxTime
         for par in requested_variables:
             # if par not in ['x_sea_water_velocity','y_sea_water_velocity','land_binary_mask','x_wind','y_wind'] :
@@ -482,8 +494,8 @@ class Reader(BaseReader,UnstructuredReader):
     def convert_3d_to_array(self,id_time,data,variable_dict):
             ''' 
             The function reshapes a data matrix of dimensions = [node,vertical_levels] (i.e. data at vertical levels, at given time step) 
-            into a one-column array and works out corresponding 3d coordinates [lon,lat,z] using the time-varying
-            'zcor' variable in SCHISM files (i.e. vertical level positions). 
+            into a one-column array and works out corresponding 3d coordinates [lon,lat,z] using the 
+            fixed Zlevels. (reader_native_schism.py uses the time-varying 'zcor' variable instead)
 
             These 3D coordinates will be used to build the 3D KDtree for data interpolation and will be added to the 'variable_dict' 
             which is eventually passed to get_variables_interpolated().
@@ -497,50 +509,56 @@ class Reader(BaseReader,UnstructuredReader):
                 -addition of ['x_3d','y_3d','z_3d'] items to variable_dict if needed.
             '''
             
-            import pdb;pdb.set_trace()
 
-
-            >>> format data so it's consistent with the 3D kdtree
-            then in readers block we can simply re-use the static 3d kdtree instead of recomputing it 
-
+            # >>> format data so it's consistent with the 3D kdtree
+            # then in readers block we can simply re-use the static 3d kdtree instead of recomputing it 
+    
+            # here we already have all the [X,Y,Z] data required in self.reader_KDtree.data
+            
 
             try:
-                vertical_levels = self.dataset.variables['zcor'][id_time,:,:]
+                # vertical_levels = self.dataset.variables['zcor'][id_time,:,:]
+
                 # depth are negative down consistent with convention used in OpenDrift 
                 # if using the netCDF4 library, vertical_levels is masked array where "masked" levels are those below seabed  (= 9.9692100e+36)
                 # if using the xarray library, vertical_levels is nan for levels are those below seabed
 
                 # convert to masked array to be consistent with what netCDF4 lib returns
-                vertical_levels = np.ma.array(vertical_levels, mask = np.isnan(vertical_levels.data)) 
+                # vertical_levels = np.ma.array(vertical_levels, mask = np.isnan(vertical_levels.data)) 
+
+                # Z levels are constant over time here
+                vertical_levels = np.ma.array(self.reader_KDtree.data[:,2], mask = np.isnan(self.reader_KDtree.data[:,2])) 
                 data = np.asarray(data)
                 # vertical_levels.mask = np.isnan(vertical_levels.data) # masked using nan's when using xarray
+                # flatten 3D data 
+                data = np.ravel(data)
+                # data = np.ravel(data[~vertical_levels.mask])
             except:
-                logger.debug('no vertical level information present in file ''zcor'' ... stopping')
-                raise ValueError('variable ''zcor'' must be present in netcdf file to be able to use 3D currents')
-            # flatten 3D data 
-            data = np.ravel(data[~vertical_levels.mask])
-
+                logger.debug('no vertical level information present in file ... stopping')
+                import pdb;pdb.set_trace()
+            
             # add corresponding 3D coordinates to the 'variable_dict' which is eventually passed to get_variables_interpolated()
             # Note: these 3d coordinates will be the same for all 3d data (current,salt/temp etc..), and will change at each reader time step
             # They are saved as ['x_3d','y_3d','z_3d'] rather than ['x','y','z'] as it would break things when both 2d and 3d data are requested.
             if 'z_3d' not in variable_dict.keys():
-                # now make a long 3-column array [lon,lat,z] [n_nodes x  3] at which 'data' is defined
-                # tile lon/lat data so that array shape match vertical_levels shape
-                x_tiled = np.tile(self.x,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
-                y_tiled = np.tile(self.y,(self.nb_levels,1)).T
-                # lon_tiled = np.tile(self.lon,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
-                # lat_tiled = np.tile(self.lat,(self.nb_levels,1)).T
-                # arrays are tiled so that lon_tiled[0,:] = return same value i.e. same lon/lat for all z levels 
-                if x_tiled.shape != vertical_levels.shape:
-                    import pdb;pdb.set_trace()
-                # convert to masked array consistent with vertical_levels
-                x_tiled_ma = np.ma.array(x_tiled, mask = vertical_levels.mask) 
-                y_tiled_ma = np.ma.array(y_tiled, mask = vertical_levels.mask)
+                # # now make a long 3-column array [lon,lat,z] [n_nodes x  3] at which 'data' is defined
+                # # tile lon/lat data so that array shape match vertical_levels shape
+                # x_tiled = np.tile(self.x,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
+                # y_tiled = np.tile(self.y,(self.nb_levels,1)).T
+                # # lon_tiled = np.tile(self.lon,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
+                # # lat_tiled = np.tile(self.lat,(self.nb_levels,1)).T
+                # # arrays are tiled so that lon_tiled[0,:] = return same value i.e. same lon/lat for all z levels 
+                # if x_tiled.shape != vertical_levels.shape:
+                #     import pdb;pdb.set_trace()
+                # # convert to masked array consistent with vertical_levels
+                # x_tiled_ma = np.ma.array(x_tiled, mask = vertical_levels.mask) 
+                # y_tiled_ma = np.ma.array(y_tiled, mask = vertical_levels.mask)
                 # flatten arrays and add to dictionary
-                variable_dict['x_3d'] = np.ravel(x_tiled_ma[~vertical_levels.mask]) 
-                variable_dict['y_3d'] = np.ravel(y_tiled_ma[~vertical_levels.mask])
-                variable_dict['z_3d'] = np.ravel(vertical_levels[~vertical_levels.mask])
 
+                variable_dict['x_3d'] = np.ravel(self.reader_KDtree.data[:,0]) 
+                variable_dict['y_3d'] = np.ravel(self.reader_KDtree.data[:,1])
+                variable_dict['z_3d'] = np.ravel(self.reader_KDtree.data[:,2])
+        
             return data,variable_dict
 
     def build_3d_kdtree(self):
@@ -548,6 +566,10 @@ class Reader(BaseReader,UnstructuredReader):
         build the static 3D KDtree
 
         we tile to (x,y) coords to match the nb_lev, then ravel() all to a single 3-column array [x,y,z]
+
+        returns
+            - 3D KDTree
+            - Zlevels matrix sisze [nnode,nb_lev]
         '''
         zlevels = self.dataset.lev.values
         nb_lev  = self.dataset.dims['lev']
@@ -562,79 +584,8 @@ class Reader(BaseReader,UnstructuredReader):
         # (YY[0,:]== YY[0,0]).all()
         # (ZZ[:,0]== ZZ[0,0]).all()
         
-        return cKDTree(np.vstack((XX.ravel(),YY.ravel(),ZZ.ravel())).T) 
-        
-    def clip_reader_data(self,variables_dict, x_particle,y_particle,requested_variables=None):
-        # clip "variables_dict" to current particle cloud extents [x_particle,y_particle] (+ buffer)
-        # 
-        # # Find a subset of mesh nodes that include the particle 
-        # cloud. The frame should not be made too small to make sure
-        # particles remain inside the frame over the time 
-        # that interpolator is used (i.e. depends on model timestep)
-        # 
-        # 
-        #  returns updated "variables" dict and data array
-        deg2meters = 1.1e5 # approx
-        buffer = .1  # degrees around given positions ~10km
-        buffer = .05  # degrees around given positions ~ 5km - reader seems quite sensitive to that buffer...
-        if self.xmax <= 360 :
-            pass # latlong reference system - keep same buffer value
-        else:
-            buffer = buffer * deg2meters# projected reference system in meters
-        self.subset_frame = [x_particle.min() - buffer,
-                             x_particle.max() + buffer, 
-                             y_particle.min() - buffer,
-                             y_particle.max() + buffer]
-        logger.debug('Spatial frame used for schism reader %s (buffer = %s) ' % (str(self.subset_frame) , buffer))
-        # find lon,lat of reader that are within the particle cloud
-        self.id_frame = np.where((self.lon >= self.subset_frame[0]) &
-                     (self.lon <= self.subset_frame[1]) &
-                     (self.lat >= self.subset_frame[2]) &
-                     (self.lat <= self.subset_frame[3]))[0]
-        logger.debug('Using %s ' % (int(100*self.id_frame.shape[0]/self.lon.shape[0])) + '%' + ' of native nodes' )
-        # print(variables_dict['x'].shape)
-        # print( self.id_frame.max())
-
-        if False:
-            import matplotlib.pyplot as plt
-            plt.ion()
-            plt.plot(x_particle,y_particle,'.')
-            box = np.array([(self.subset_frame[0],self.subset_frame[2]),\
-                            (self.subset_frame[1],self.subset_frame[2]),\
-                            (self.subset_frame[1],self.subset_frame[3]),\
-                            (self.subset_frame[0],self.subset_frame[3]),\
-                            (self.subset_frame[0],self.subset_frame[2])])
-            plt.plot(box[:,0],box[:,1])
-            plt.title('frame used in clip_reader_data()')
-            import pdb;pdb.set_trace()
-            # plt.close()
-
-        variables_dict['x'] = variables_dict['x'][self.id_frame]
-        variables_dict['y'] = variables_dict['y'][self.id_frame]
-        variables_dict['z'] = variables_dict['z'][self.id_frame]
-
-        if 'x_3d' in variables_dict:
-            ID= np.where((variables_dict['x_3d'] >= self.subset_frame[0]) &
-                 (variables_dict['x_3d'] <= self.subset_frame[1]) &
-                 (variables_dict['y_3d'] >= self.subset_frame[2]) &
-                 (variables_dict['y_3d']<= self.subset_frame[3]))[0]  
-            variables_dict['x_3d'] = variables_dict['x_3d'][ID]
-            variables_dict['y_3d'] = variables_dict['y_3d'][ID]
-            variables_dict['z_3d'] = variables_dict['z_3d'][ID]
-
-        for par in requested_variables:
-            if 'x_3d' not in variables_dict:
-                # 2D data
-                variables_dict[par] = variables_dict[par][self.id_frame]
-            else: # can be either 2D or 3D data, in case requested_variables includes both 2D and 3D data
-                if variables_dict[par].shape[0] == self.lon.shape[0] : # this "par" is 2D data
-                    variables_dict[par] = variables_dict[par][self.id_frame]
-                else:
-                    # 3D data converted to array
-                    variables_dict[par] = variables_dict[par][ID]
-
-        return variables_dict
-        
+        return cKDTree(np.vstack((XX.ravel(),YY.ravel(),ZZ.ravel())).T)
+                
     def set_convolution_kernel(self, convolve):
         """Set a convolution kernel or kernel size (of array of ones) used by `get_variables` on read variables."""
         self.convolve = convolve
@@ -990,233 +941,6 @@ class Reader(BaseReader,UnstructuredReader):
         log_fac = ( np.log(part_z_above_seabed / self.z0) ) / ( np.log(np.abs(total_depth)/self.z0)-1 ) # total_depth must be positive, hence the abs()
         log_fac[np.where(part_z_above_seabed<=0)] = 1.0 # do not change velocity value
         return log_fac
-    
-    def load_shoreline_landmask(self):
-        # load shoreline polygon is added by user,used for additional on-land checks
-        #  must be in wgs84
-        # see reader_landmask_custom.py
-        from shapely.geometry import Polygon, MultiPolygon, asPolygon
-        import shapely
-
-        shore = np.loadtxt(
-            self.shore_file)  # nan-delimited closed polygons for land and islands
-
-        # Loop through polygon to build MultiPolygon object
-        #
-        # make sure that start and end lines are [nan,nan] as well
-        if not np.isnan(shore[0, 0]):
-            shore = np.vstack(([np.nan, np.nan], shore))
-        if not np.isnan(shore[-1, 0]):
-            shore = np.vstack((shore, [np.nan, np.nan]))
-        id_nans = np.where(np.isnan(shore[:, 0]))[0]
-        poly = []
-        for cnt, _id_i in enumerate(id_nans[:-1]):
-            # The shapely.geometry.asShape() family of functions can be used to wrap Numpy coordinate arrays
-            # https://shapely.readthedocs.io/en/latest/manual.html
-            poly.append(
-                asPolygon(shore[id_nans[cnt] + 1:id_nans[cnt + 1] - 1, :]))
-        # We can pass multiple Polygon -objects into our MultiPolygon as a list
-        landmask = MultiPolygon(poly)
-        # check plot
-        # import matplotlib.pyplot as plt;plt.plot(landmask[0].exterior.xy[0],landmask[0].exterior.xy[1])
-        landmask = shapely.prepared.prep(landmask)
-        # self.shore_landmask = landmask
-        return landmask
-
-    def plot_mesh(self, variable=None, vmin=None, vmax=None,
-             filename=None, title=None, buffer=1, lscale='auto',plot_time = None):
-        """Plot geographical coverage of reader."""
-
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Polygon
-        import cartopy.crs as ccrs
-        import cartopy.feature as cfeature
-        # from opendrift_landmask_data import Landmask
-        import matplotlib.tri as mtri
-        fig = plt.figure()
-
-        if plot_time is None : 
-            plot_time = self.start_time
-
-
-        #####################################
-        # In Dev - plot unstructured mesh
-        # 
-        # To do 
-        #  - plot in correct cartopy projection, consistent with basereader.py plot()
-        #  - plot a given timestep for flows
-        #  - incorporate that to animation as in basemodel.py etc...
-        # 
-        #####################################
-        if False:
-            import pdb;pdb.set_trace()
-            import matplotlib.tri as mtri
-            from mpl_toolkits.mplot3d import Axes3D
-            X=self.dataset.variables['SCHISM_hgrid_node_x'][:]
-            Y=self.dataset.variables['SCHISM_hgrid_node_y'][:]
-            Z=self.dataset.variables['depth'][:]
-            face=self.dataset.variables['SCHISM_hgrid_face_nodes'][:,0:3]-1
-            # build triangulation
-            triang =mtri.Triangulation(X,Y, triangles=face, mask=None)
-            # quads=Triangulation(gr.x,gr.y,quads)
-            #
-            # plot the triangular mesh 
-            plt.triplot(triang) 
-            # plot the variable - here depth for now
-            plt.tricontourf(triang, Z)
-            # more complex 3D plots 
-            # ax = fig.add_subplot(1,1,1, projection='3d')
-            # ax.plot_trisurf(triang,Z, cmap='jet')
-            # or 
-            # from https://github.com/metocean/schism-public/blob/master/LSC/lsc.py
-            # tricon=ax.tricontourf(triang,Z,cmap='jet')
-            # ax.view_init(azim=-90, elev=90)
-            plt.ion()
-            plt.show()
-            import pdb;pdb.set_trace()
-        #####################################
-
-
-        corners = self.xy2lonlat([self.xmin, self.xmin, self.xmax, self.xmax],
-                                 [self.ymax, self.ymin, self.ymax, self.ymin])
-        lonmin = np.min(corners[0]) - buffer*2
-        lonmax = np.max(corners[0]) + buffer*2
-        latmin = np.min(corners[1]) - buffer
-        latmax = np.max(corners[1]) + buffer
-        latspan = latmax - latmin
-
-        # Initialise map
-        if latspan < 90:
-            # Stereographic projection centred on domain, if small domain
-            x0 = (self.xmin + self.xmax) / 2
-            y0 = (self.ymin + self.ymax) / 2
-            lon0, lat0 = self.xy2lonlat(x0, y0)
-            sp = ccrs.Stereographic(central_longitude=lon0[0], central_latitude=lat0[0])
-            ax = fig.add_subplot(1, 1, 1, projection=sp)
-            corners_stere = sp.transform_points(ccrs.PlateCarree(), np.array(corners[0]), np.array(corners[1]))
-        else:
-            # Global map if reader domain is large
-            sp = ccrs.Mercator()
-            ax = fig.add_subplot(1, 1, 1, projection=sp)
-            #map = Basemap(np.array(corners[0]).min(), -89,
-            #              np.array(corners[0]).max(), 89,
-            #              resolution='c', projection='cyl')
-
-        # GSHHS coastlines
-        f = cfeature.GSHHSFeature(scale=lscale, levels=[1],
-                                  facecolor=cfeature.COLORS['land'])
-        ax.add_geometries(
-            f.intersecting_geometries([lonmin, lonmax, latmin, latmax]),
-            ccrs.PlateCarree(),
-            facecolor=cfeature.COLORS['land'],
-            edgecolor='black')
-
-        gl = ax.gridlines(ccrs.PlateCarree())
-        gl.xlabels_top = False
-
-        # Get boundary
-        npoints = 10  # points per side
-        x = np.array([])
-        y = np.array([])
-        x = np.concatenate((x, np.linspace(self.xmin, self.xmax, npoints)))
-        y = np.concatenate((y, [self.ymin]*npoints))
-        x = np.concatenate((x, [self.xmax]*npoints))
-        y = np.concatenate((y, np.linspace(self.ymin, self.ymax, npoints)))
-        x = np.concatenate((x, np.linspace(self.xmax, self.xmin, npoints)))
-        y = np.concatenate((y, [self.ymax]*npoints))
-        x = np.concatenate((x, [self.xmin]*npoints))
-        y = np.concatenate((y, np.linspace(self.ymax, self.ymin, npoints)))
-        # from x/y vectors create a Patch to be added to map
-        lon, lat = self.xy2lonlat(x, y)
-        lat[lat>89] = 89.
-        lat[lat<-89] = -89.
-        p = sp.transform_points(ccrs.PlateCarree(), lon, lat)
-        xsp = p[:, 0]
-        ysp = p[:, 1]
-
-        if variable is None: # generic plot to check extents
-            boundary = Polygon(list(zip(xsp, ysp)), alpha=0.5, ec='k', fc='b',
-                               zorder=100)
-            ax.add_patch(boundary)
-            # add nodes
-            rx = np.array([self.xmin, self.xmax])
-            ry = np.array([self.ymin, self.ymax])
-            data = self.get_variables('sea_floor_depth_below_sea_level', plot_time,rx, ry, block=True)
-            rlon, rlat = self.xy2lonlat(data['x'], data['y']) # node coordinates
-            ax.plot(rlon,rlat, '.',transform=ccrs.PlateCarree())
-            # set extents
-            buf = (xsp.max()-xsp.min())*.1  # Some whitespace around polygon
-            buf = 0
-            try:
-                ax.set_extent([xsp.min()-buf, xsp.max()+buf, ysp.min()-buf, ysp.max()+buf], crs=sp)
-            except:
-                pass
-        if title is None:
-            plt.title(self.name)
-        else:
-            plt.title(title)
-        plt.xlabel('Time coverage: %s to %s' %
-                   (self.start_time, self.end_time))
-        
-
-        if variable is not None:
-            if len(variable) == 1: # simple scalar variable
-                variable = variable[0]
-                rx = np.array([self.xmin, self.xmax])
-                ry = np.array([self.ymin, self.ymax])
-                data = self.get_variables(variable, plot_time,rx, ry, block=True)
-                rlon, rlat = self.xy2lonlat(data['x'], data['y']) # node coordinates
-                data[variable] = np.ma.masked_invalid(data[variable])
-                # ax.plot(rlon,rlat, '.',transform=ccrs.PlateCarree())
-                face=self.dataset.variables['SCHISM_hgrid_face_nodes'][:,0:3]-1
-                # build triangulation
-                triang =mtri.Triangulation(rlon,rlat, triangles=face, mask=None)
-                # plot the variable 
-                ax.tricontourf(triang, data[variable],vmin=vmin, vmax=vmax, transform=ccrs.PlateCarree())
-                # add the triangular mesh - too slow
-                # ax.triplot(triang, transform=ccrs.PlateCarree()) 
-
-            elif len(variable)>1 and all('water' in var for var in variable):  # vector field variable = ['x_sea_water_velocity','y_sea_water_velocity']
-                rx = np.array([self.xmin, self.xmax])
-                ry = np.array([self.ymin, self.ymax])
-                data = self.get_variables(variable, plot_time,rx, ry, block=True)
-                rlon, rlat = self.xy2lonlat(data['x'], data['y']) # node coordinates
-                # data[variable] = np.ma.masked_invalid(data[variable])
-                # ax.plot(rlon,rlat, '.',transform=ccrs.PlateCarree())
-                face=self.dataset.variables['SCHISM_hgrid_face_nodes'][:,0:3]-1
-                # build triangulation
-                triang =mtri.Triangulation(rlon,rlat, triangles=face, mask=None)
-                if False:
-                    # plot the variable 
-                    ax.tricontourf(triang, data[variable],vmin=vmin, vmax=vmax, transform=ccrs.PlateCarree())
-                    # add the triangular mesh - too slow
-                    ax.triplot(triang, transform=ccrs.PlateCarree()) 
-
-                ax.quiver(rlon,rlat,data['x_sea_water_velocity'],data['y_sea_water_velocity'],np.sqrt(data['x_sea_water_velocity']**2 + data['y_sea_water_velocity']**2), transform=ccrs.PlateCarree() )
-
-            ax.set_extent([xsp.min()-.5, xsp.max()+.5, ysp.min()-.5, ysp.max()+.5], crs=sp)
-
-        try:  # Activate figure zooming
-            mng = plt.get_current_fig_manager()
-            mng.toolbar.zoom()
-        except:
-            pass
-        
-        import pdb;pdb.set_trace()
-
-        if filename is not None:
-            plt.savefig(filename)
-            plt.close()
-        else:
-            plt.ion()
-            plt.show()
-            import pdb;pdb.set_trace()
-            # 
-            # variable = ['sea_floor_depth_below_sea_level','x_sea_water_velocity','y_sea_water_velocity']
-            # data = self.get_variables(variable, self.start_time,rx, ry, block=True) # where variable = ['x_sea_water_velocity','y_sea_water_velocity']
-            # plt.quiver(rlon,rlat,data['x_sea_water_velocity']) #> check what's going here
-            # >>> try to add quiver to check flow fields and how they are interpolated over time
-            # >>> also consider adding the possibiltyy to overlay quiver+particle motions for the reader_netCDF_CF_generic structured
 
 ###########################
 # ReaderBlockUnstruct class
@@ -1247,7 +971,7 @@ class ReaderBlockUnstruct():
     logger = logging.getLogger('opendrift')  # using common logger
 
     def __init__(self, data_dict, 
-                 KDtree = None,
+                 KDtree = None, # here it should be the 3D KDtree
                  interpolation_horizontal='linearNDFast',
                  interpolation_vertical='linear'):
 
@@ -1278,73 +1002,77 @@ class ReaderBlockUnstruct():
 
         # Initialize KDtree(s) 
         # > save the 2D one by default (initizalied during reader __init__()
-        # > compute and save the time-varying 3D KDtree if relevant     
+        # > compute and save the time-varying 3D KDtree if relevant  
         
         logger.debug('saving reader''s 2D (horizontal) KDtree to ReaderBlockUnstruct')
         self.block_KDtree = KDtree # KDtree input to function = one computed during reader's __init__()
-
-        # If we eventually use subset of nodes rather than full mesh, we'll need to re-compute the 2D KDtree
-        # as well, instead of re-using the "full" one available from reader's init
-        # logger.debug('Compute time-varying KDtree for 2D nearest-neighbor search') 
-        # self.block_KDtree = cKDTree(np.vstack((self.x,self.y)).T)  # KDtree input to function = one computed during reader's __init__()
-
-        if hasattr(self,'z_3d'):
-            # we need to compute a new KDtree for that time step using vertical coordinates at that time step
-            logger.debug('Compute time-varying KDtree for 3D nearest-neighbor search (i.e using ''zcor'') ')
-            # clean arrays if needed, especially z_3d (get rid of nan's) - keep only non-nan
-            # 
-            # check for nan's 
-            # if (self.z_3d != self.z_3d).any(): # not required
-            #     self.x_3d = self.x_3d[np.where(self.z_3d == self.z_3d)]
-            #     self.y_3d = self.y_3d[np.where(self.z_3d == self.z_3d)]
-            #     self.z_3d = self.z_3d[np.where(self.z_3d == self.z_3d)]
-            # check for infinite values
-            if np.isinf(self.z_3d).any() :
-                self.z_3d[np.where(np.isinf(self.z_3d))] = 15.0 #limit to +15.0m i.e. above msl
-            
-            self.block_KDtree_3d = cKDTree(np.vstack((self.x_3d,self.y_3d,self.z_3d)).T) 
-            # do we need copy_data=True ..probably not since "data" [self.x_3d,self.y_3d,self.z_3d] 
-            # will not change without the KDtree being recomputedplt
-
-        # Mask any extremely large values, e.g. if missing netCDF _Fill_value
-        filled_variables = set()
-        for var in self.data_dict:
-            if isinstance(self.data_dict[var], np.ma.core.MaskedArray):
-                self.data_dict[var] = np.ma.masked_outside(
-                    np.ma.masked_invalid(self.data_dict[var]), -1E+9, 1E+9)
-                # Convert masked arrays to numpy arrays
-                self.data_dict[var] = np.ma.filled(self.data_dict[var],
-                                                   fill_value=np.nan)
-            # Fill missing data towards seafloor if 3D
-            if isinstance(self.data_dict[var], (list,)):
-                logger.warning('Ensemble data currently not extrapolated towards seafloor')
-            elif self.data_dict[var].ndim == 3:
-                filled = fill_NaN_towards_seafloor(self.data_dict[var])
-                if filled is True:
-                    filled_variables.add(var)
-                
-        if len(filled_variables) > 0:
-            logger.debug('Filled NaN-values toward seafloor for :'
-                          + str(list(filled_variables)))
         
-        # below probably not be relevant any longer
-        if False:
-            # Set 1D (vertical) and 2D (horizontal) interpolators
-            try:
-                self.Interpolator2DClass = \
-                    horizontal_interpolation_methods[interpolation_horizontal]
-            except Exception:
-                raise NotImplementedError(
-                    'Valid interpolation methods are: ' +
-                    str(horizontal_interpolation_methods.keys()))
+        # the KDtree passed to interpolator is actually a 3D KDtree, and it will be static now
+        logger.debug('saving reader''s 3D KDtree (static) to ReaderBlockUnstruct')
+        self.block_KDtree_3d  = KDtree
 
-            try:
-                self.Interpolator1DClass = \
-                    vertical_interpolation_methods[interpolation_vertical]
-            except Exception:
-                raise NotImplementedError(
-                    'Valid interpolation methods are: ' +
-                    str(vertical_interpolation_methods.keys()))
+        # # If we eventually use subset of nodes rather than full mesh, we'll need to re-compute the 2D KDtree
+        # # as well, instead of re-using the "full" one available from reader's init
+        # # logger.debug('Compute time-varying KDtree for 2D nearest-neighbor search') 
+        # # self.block_KDtree = cKDTree(np.vstack((self.x,self.y)).T)  # KDtree input to function = one computed during reader's __init__()
+
+        # if hasattr(self,'z_3d'):
+        #     # we need to compute a new KDtree for that time step using vertical coordinates at that time step
+        #     logger.debug('Compute time-varying KDtree for 3D nearest-neighbor search (i.e using ''zcor'') ')
+        #     # clean arrays if needed, especially z_3d (get rid of nan's) - keep only non-nan
+        #     # 
+        #     # check for nan's 
+        #     # if (self.z_3d != self.z_3d).any(): # not required
+        #     #     self.x_3d = self.x_3d[np.where(self.z_3d == self.z_3d)]
+        #     #     self.y_3d = self.y_3d[np.where(self.z_3d == self.z_3d)]
+        #     #     self.z_3d = self.z_3d[np.where(self.z_3d == self.z_3d)]
+        #     # check for infinite values
+        #     if np.isinf(self.z_3d).any() :
+        #         self.z_3d[np.where(np.isinf(self.z_3d))] = 15.0 #limit to +15.0m i.e. above msl
+            
+        #     self.block_KDtree_3d = cKDTree(np.vstack((self.x_3d,self.y_3d,self.z_3d)).T) 
+        #     # do we need copy_data=True ..probably not since "data" [self.x_3d,self.y_3d,self.z_3d] 
+        #     # will not change without the KDtree being recomputedplt
+
+        # # Mask any extremely large values, e.g. if missing netCDF _Fill_value
+        # filled_variables = set()
+        # for var in self.data_dict:
+        #     if isinstance(self.data_dict[var], np.ma.core.MaskedArray):
+        #         self.data_dict[var] = np.ma.masked_outside(
+        #             np.ma.masked_invalid(self.data_dict[var]), -1E+9, 1E+9)
+        #         # Convert masked arrays to numpy arrays
+        #         self.data_dict[var] = np.ma.filled(self.data_dict[var],
+        #                                            fill_value=np.nan)
+        #     # Fill missing data towards seafloor if 3D
+        #     if isinstance(self.data_dict[var], (list,)):
+        #         logger.warning('Ensemble data currently not extrapolated towards seafloor')
+        #     elif self.data_dict[var].ndim == 3:
+        #         filled = fill_NaN_towards_seafloor(self.data_dict[var])
+        #         if filled is True:
+        #             filled_variables.add(var)
+                
+        # if len(filled_variables) > 0:
+        #     logger.debug('Filled NaN-values toward seafloor for :'
+        #                   + str(list(filled_variables)))
+        
+        # # below probably not be relevant any longer
+        # if False:
+        #     # Set 1D (vertical) and 2D (horizontal) interpolators
+        #     try:
+        #         self.Interpolator2DClass = \
+        #             horizontal_interpolation_methods[interpolation_horizontal]
+        #     except Exception:
+        #         raise NotImplementedError(
+        #             'Valid interpolation methods are: ' +
+        #             str(horizontal_interpolation_methods.keys()))
+
+        #     try:
+        #         self.Interpolator1DClass = \
+        #             vertical_interpolation_methods[interpolation_vertical]
+        #     except Exception:
+        #         raise NotImplementedError(
+        #             'Valid interpolation methods are: ' +
+        #             str(vertical_interpolation_methods.keys()))
 
         if 'land_binary_mask' in self.data_dict.keys() and \
                 interpolation_horizontal != 'nearest':
