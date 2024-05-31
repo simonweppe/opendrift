@@ -14,9 +14,10 @@
 #
 #
 ##########################################################################
-# This reader supports is based on reader_schism_native.py but allows for 
-# ingestion of SCHISM dataset that have been post-processed onto regular
-# z levels (from Oceanum's Datamesh)
+# This reader is based on reader_schism_native.py and allows for 
+# ingestion of SCHISM datasets that have been post-processed onto regular
+# and fixed z-levels in the vertical (from Oceanum's Datamesh)
+# unlike native SCHISM files that have time-varying sigma levels. 
 ##########################################################################
 
 
@@ -42,7 +43,7 @@ import shapely
 class Reader(BaseReader,UnstructuredReader):
 # class Reader(ReaderSchismNative):
 
-    def __init__(self, filename=None, name=None, proj4=None, use_3d = True , use_model_landmask = False,**kwargs):
+    def __init__(self, filename=None, name=None, proj4=None ,**kwargs):
         """Initialise reader_netCDF_CF_unstructured_SCHISM
 
         Args:
@@ -51,21 +52,12 @@ class Reader(BaseReader,UnstructuredReader):
             name        :   name of reader - optional, taken as filename if not input
                             o.readers['name']
 
-            proj4       :   proj4 string defining spatial reference system of the model output coordinates. 
+            proj4       :   proj4 string defining spatial reference system to use to convert the (lon,lat) from netcdd file
+                            to cartesian coordinates. This is required for correct use of the 3D KDtree (i.e. all distances in meters)
+                            to convert 3D velocities to particle positions
                             find string here : https://spatialreference.org/ref/epsg/
-                            
-                            Note : if the (x,y) in model output files are in wgs84, and the user want to run in 3D, 
-                            then it must specify a cartesian coordinate system as <proj4> that will be used 
-                            to convert the geographic coords into cartesian coordinates for correct 3D interpolation
-
-            use_3d      :   switch to use 3d flows (if available)
-            
-            use_model_landmask  : switch to use time-varying landmask from model wetdry_elem 
-                                  (False by default)
-            kwargs      : shore_file , allows adding a shoreline file that will be used alongside model 
-                          landmask to flag particles on land in _get_variables_interpolated_()
-                          Required in some cases to avoid particles going on land
-                          Note this file should be one or several closed polygon(s) reprensenting land area
+                                        
+            kwargs      : None for now
         """
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
@@ -121,7 +113,9 @@ class Reader(BaseReader,UnstructuredReader):
         except Exception as e:
             raise ValueError(e)
 
-        # Define projection of input data
+        # Define projection to be used to convert (lon,lat) from netcdf file
+        # to cartesian coordinates
+        # self.proj4 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' #'+proj=latlong' # WGS84
         # 
         if proj4 is not None: #  user has provided a projection apriori
             self.proj4 = proj4
@@ -129,27 +123,12 @@ class Reader(BaseReader,UnstructuredReader):
             self.proj4 = None
             logger.error('No projection <proj4> was defined when initializing the reader')
             logger.error('Please specify cartesian <proj4> to be used to convert model outputs coordinates \n \
-                         (needed for kdtree to work ie. to convert all distances in meters')
-
-        # dataset is in lon,lat WGS             
-        # self.proj4 = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' #'+proj=latlong'
+                         (needed for 3D kdtree to work i.e. to convert all distances in meters')
         
-        # check if 3d data is available and if we should use it
-        self.use_3d = True # we do use 3D here
-
-        # if self.use_3d is None : # not specified, use 3d data by default (if available)
-        #     if 'hvel' in self.dataset.variables:
-        #         self.use_3d = True
-        #     else:
-        #         self.use_3d = False
+        self.use_3d = True # we always use 3D here
 
         if self.use_3d and ('hvelu' not in self.dataset.variables or 'hvelv' not in self.dataset.variables):
             logger.error('No 3D velocity data in file - cannot find variable ''hvelu, or hvelv'' ')
-        
-        # we fill the nan data in the vertical with latest good values
-        # logger.info('Filling nan with latest non-nan values in 3D velocity arrays')
-        # self.dataset['hvelu'] = self.dataset.hvelu.ffill(dim='lev',limit=None)
-        # self.dataset['hvelv'] = self.dataset.hvelv.ffill(dim='lev',limit=None)
         
         # we fill the nan data in the vertical with 0.0
         # particle will be flagged as below seabed anyway
@@ -157,38 +136,14 @@ class Reader(BaseReader,UnstructuredReader):
         self.dataset['hvelu'] = self.dataset.hvelu.fillna(0)
         self.dataset['hvelv'] = self.dataset.hvelv.fillna(0)
 
-        # we dont need zcor here as vertical levels are constant 
-
-        # elif self.use_3d and 'hvel' in self.dataset.variables:
-        #     if 'zcor' in self.dataset.variables: # both hvel and zcor in files - all good
-        #         self.nb_levels = self.dataset.variables['hvel'].shape[2] #hvel dimensions : [time,node,lev,2]
-        #     else:
-        #         logger.debug('No vertical level information present in file ''zcor'' ... stopping')
-        #         raise ValueError('variable ''zcor'' must be present in netcdf file to be able to use 3D currents')
-        
-        # set options for particles on-land check, using model landmask or not 
-        # self.use_model_landmask = use_model_landmask
-        # if self.use_model_landmask : 
-        #     logger.debug('Using time-varying landmask from SCHISM for on-land particles checks (wetdry_elem variable) ')
-        #     if 'shore_file' in kwargs:
-        #         logger.debug('Also adding static shoreline file %s for additionnal on-land particles' %  kwargs['shore_file'])
-        #         self.shore_file = kwargs['shore_file']
-        #         self.shore_landmask = self.load_shoreline_landmask() # add self.shore_landmask as prepared geometry
+        # Alternative could bbe to fill the nan data in the vertical with latest good values
+        # logger.info('Filling nan with latest non-nan values in 3D velocity arrays')
+        # self.dataset['hvelu'] = self.dataset.hvelu.ffill(dim='lev',limit=None)
+        # self.dataset['hvelv'] = self.dataset.hvelv.ffill(dim='lev',limit=None)
 
         logger.debug('Finding coordinate variables.')
         # Find x, y and z coordinates
         for var_name in self.dataset.variables:
-
-            # if var_name in ['SCHISM_hgrid_face_x',
-            #                 'SCHISM_hgrid_face_y',
-            #                 'SCHISM_hgrid_edge_x',
-            #                 'SCHISM_hgrid_edge_y']:
-            #     # all these variables have the same standard name projection_x_coordinate,projection_y_coordinate
-            #     # we need to only use :
-            #     # SCHISM_hgrid_node_x as projection_x_coordinate
-            #     # SCHISM_hgrid_node_y as projection_y_coordinate
-            #     # which are the nodes (also called vertices)
-            #     continue
 
             var = self.dataset.variables[var_name]
 
@@ -299,7 +254,6 @@ class Reader(BaseReader,UnstructuredReader):
             # the vertical distance unit is meter, while the horizontal distance unit is degrees, which will return
             # erroneous "closest" nodes in ReaderBlockUnstruct,interpolate()
             # 
-            # self.use_3d = False # force use of 2D for which the nearest node method will work
             if self.proj4 is None :
                 logger.error('No projection <proj4> was specified when initializing reader')
                 logger.error('If native coordinates are lon/lat, then specify the coords system to be used to convert these to cartesian')
@@ -310,13 +264,6 @@ class Reader(BaseReader,UnstructuredReader):
             x2, y2 = transformer.transform(self.x, self.y)
             self.x = x2.copy()
             self.y = y2.copy()
-
-
-        # >> here we need to ingest the z coordinates and decide if we go for 
-        # a 3D KDtree pre-computed only once at beginning of simulation, then just re-use that ? every time ?
-        # or use a 2D KDtree and look for closest vertical levels above/below  ? 
-        # To test
-        
         
         # Run constructor of parent Reader class
         super(Reader, self).__init__()
@@ -345,33 +292,7 @@ class Reader(BaseReader,UnstructuredReader):
 
             if var_name in schism_mapping:
                 self.variable_mapping[schism_mapping[var_name]] = str(var_name) 
-                
-                # below now needed
-                # current velocity variables ['dahv','hvel'] need special treatment because
-                # [u,v] components are saved in the same variable i.e.
-                # u = nc.variables['hvel'][0,:,:]
-                # v = nc.variables['hvel'][1,:,:]
-                # 
-                # this means both x_sea_water_velocity and y_sea_water_velocity
-                # will be mapped to same name. Correct data will be then extracted
-                # in get_variables()
-                # 
-                # if var_name == 'hvel' and self.use_3d : # then use 3d data
-                #     self.variable_mapping['x_sea_water_velocity'] = str(var_name)
-                #     self.variable_mapping['y_sea_water_velocity'] = str(var_name)   
-                # elif var_name == 'hvel' and not self.use_3d: # skip
-                #     pass
-                # elif var_name == 'dahv' and self.use_3d : # skip
-                #     pass   
-                # elif var_name == 'dahv' and not self.use_3d: # then use depth-averaged data
-                #     self.variable_mapping['x_sea_water_velocity'] = str(var_name)
-                #     self.variable_mapping['y_sea_water_velocity'] = str(var_name)
-                # elif var_name == 'wind_speed' : # wind speed vectors
-                #     self.variable_mapping['x_wind'] = str(var_name)
-                #     self.variable_mapping['y_wind'] = str(var_name)                  
-                # else: # standard mapping                                    
- 
-                   
+                    
         self.variables = list(self.variable_mapping.keys())
 
         self.xmin = self.x.min()
@@ -434,60 +355,14 @@ class Reader(BaseReader,UnstructuredReader):
                 # convert 3D data matrix to one column array and define corresponding data coordinates [x,y,z]
                 # (+ update variables dictionary with 3d coords if needed)
                 data,variables = self.convert_3d_to_array(indxTime,data,variables)
-
             else:
                 raise ValueError('Wrong dimension of %s: %i' %
                                     (self.variable_mapping[par], var.ndim))
-            # 
-            # we dont need these special split anymore
-            # 
-            # elif par in ['x_sea_water_velocity','y_sea_water_velocity','x_wind','y_wind'] :
-            #     # requested variables are vectors : current or wind velocities
-            #     # In SCHISM netcdf files, both [u,v] components are saved 
-            #     # as two different dimensions of the same variable.
-            #     var = self.dataset.variables[self.variable_mapping[par]]
-            #     if var.ndim == 3: # depth-averaged current data 'dahv', or 'wind_speed' defined at each node and time [time,node,2]
-            #         if par in ['x_sea_water_velocity','x_wind']:
-            #            data = var[indxTime,:,0]
-            #         elif par in ['y_sea_water_velocity','y_wind']:
-            #            data = var[indxTime,:,1] 
-            #         logger.debug('reading 2D velocity data from unstructured reader %s' % (par))
-
-            #     elif var.ndim == 4: # #3D current data 'hvel' defined at each node, level, and time [time,node,zcor,2]
-            #         if par == 'x_sea_water_velocity':
-            #            data = var[indxTime,:,:,0]   #hvel dimensions : [time,node,lev,2]
-            #         elif par == 'y_sea_water_velocity':
-            #            data = var[indxTime,:,:,1] #hvel dimensions : [time,node,lev,2]
-            #         logger.debug('reading 3D velocity data from unstructured reader %s' % (par))
-
-            #         # convert 3D data matrix to one column array and define corresponding data coordinates [x,y,z]
-            #         # (+ update variables dictionary with 3d coords if needed)
-            #         data,variables = self.convert_3d_to_array(indxTime,data,variables)
-
-            # elif (par in ['land_binary_mask']) & (self.use_model_landmask) :
-            #     dry_elem = self.dataset.variables[self.variable_mapping[par]][indxTime,:] # dry_elem =1 if dry, 0 if wet, for each element face
-            #     # find indices of nodes making up the dry elements
-            #     if len(self.dataset['SCHISM_hgrid_face_nodes'].shape) == 3:
-            #         # when using open_mfdataset, the variable is expanded along time dimension, hence use of indxTime shape = (nb_time,nb_elem,4)
-            #         node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][indxTime,dry_elem.values.astype('bool'),:]) # id of nodes making up each element 
-            #     else:
-            #         node_id = np.ravel(self.dataset['SCHISM_hgrid_face_nodes'][dry_elem.values.astype('bool'),:]) # id of nodes making up each elements shape = (nb_elem,4)
-            #     # remove nans, and keep unique indices
-            #     node_id = np.unique(node_id[~np.isnan(node_id)]) - 1 # add <-1> to convert node index rather than absolute number
-            #     data = 0.0*self.x # build array, same size as node
-            #     data[node_id.astype(int)] = 1.0 # set dry nodes to one to be used as 'land_binary_mask'
-
+            
             variables[par] = data # save all data slice to dictionary with key 'par'
             # Store coordinates of returned points
-            #  >> done in previous steps here, line 380 and in convert_3d_to_array()
             variables[par] = np.asarray(variables[par])
 
-        # self.use_subset = False # Functionnal now  - need to check results are consistent.
-        # if self.use_subset: # for testing subsetting data before computin KD-trees
-        #     variables = self.clip_reader_data(variables_dict = variables, x_particle = x,y_particle = y, requested_variables = requested_variables) # clip reader data to particle cloud coverage 
-        #     # update the 2D KDtree (will be used to initialize the ReaderBlockUnstruct)
-        #     self.reader_KDtree = cKDTree(np.vstack((variables['x'],variables['y'])).T) 
-        #     # the 3D KDtree in updated within ReaderBlockUnstruct()
         return variables 
 
 
@@ -497,9 +372,6 @@ class Reader(BaseReader,UnstructuredReader):
             into a one-column array and works out corresponding 3d coordinates [lon,lat,z] using the 
             fixed Zlevels. (reader_native_schism.py uses the time-varying 'zcor' variable instead)
 
-            These 3D coordinates will be used to build the 3D KDtree for data interpolation and will be added to the 'variable_dict' 
-            which is eventually passed to get_variables_interpolated().
-
             args:
                 -id_time
                 -data
@@ -508,13 +380,7 @@ class Reader(BaseReader,UnstructuredReader):
                 -flattened 'data' array
                 -addition of ['x_3d','y_3d','z_3d'] items to variable_dict if needed.
             '''
-            
-
-            # >>> format data so it's consistent with the 3D kdtree
-            # then in readers block we can simply re-use the static 3d kdtree instead of recomputing it 
-    
-            # here we already have all the [X,Y,Z] data required in self.reader_KDtree.data
-            
+                        
 
             try:
                 # vertical_levels = self.dataset.variables['zcor'][id_time,:,:]
@@ -538,23 +404,8 @@ class Reader(BaseReader,UnstructuredReader):
                 import pdb;pdb.set_trace()
             
             # add corresponding 3D coordinates to the 'variable_dict' which is eventually passed to get_variables_interpolated()
-            # Note: these 3d coordinates will be the same for all 3d data (current,salt/temp etc..), and will change at each reader time step
             # They are saved as ['x_3d','y_3d','z_3d'] rather than ['x','y','z'] as it would break things when both 2d and 3d data are requested.
             if 'z_3d' not in variable_dict.keys():
-                # # now make a long 3-column array [lon,lat,z] [n_nodes x  3] at which 'data' is defined
-                # # tile lon/lat data so that array shape match vertical_levels shape
-                # x_tiled = np.tile(self.x,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
-                # y_tiled = np.tile(self.y,(self.nb_levels,1)).T
-                # # lon_tiled = np.tile(self.lon,(self.nb_levels,1)).T # dimensions [node,vertical_levels]
-                # # lat_tiled = np.tile(self.lat,(self.nb_levels,1)).T
-                # # arrays are tiled so that lon_tiled[0,:] = return same value i.e. same lon/lat for all z levels 
-                # if x_tiled.shape != vertical_levels.shape:
-                #     import pdb;pdb.set_trace()
-                # # convert to masked array consistent with vertical_levels
-                # x_tiled_ma = np.ma.array(x_tiled, mask = vertical_levels.mask) 
-                # y_tiled_ma = np.ma.array(y_tiled, mask = vertical_levels.mask)
-                # flatten arrays and add to dictionary
-
                 variable_dict['x_3d'] = np.ravel(self.reader_KDtree.data[:,0]) 
                 variable_dict['y_3d'] = np.ravel(self.reader_KDtree.data[:,1])
                 variable_dict['z_3d'] = np.ravel(self.reader_KDtree.data[:,2])
@@ -864,14 +715,6 @@ class Reader(BaseReader,UnstructuredReader):
         if False :
             self.apply_logarithmic_current_profile(env,z)
          
-        # additional on-land checks using shore_landmask (if present)
-        if 'land_binary_mask' in env.keys() and self.use_model_landmask and hasattr(self,'shore_file'):
-            logger.debug('Updating land_binary_mask using shoreline landmask <%s> ' % self.shore_file)
-            lon_tmp,lat_tmp = self.xy2lonlat(reader_x,reader_y)
-            on_shore_landmask = shapely.vectorized.contains(self.shore_landmask, lon_tmp, lat_tmp) #checks if particle(s) are in land polys
-            # update the 'land_binary_mask' accounting for shoreline landmask
-            env['land_binary_mask'] = np.maximum(env['land_binary_mask'],on_shore_landmask.astype(float))
-
         # make sure dry points have zero velocities which is not always the case
         # we could also look at using depth and thresholds to flag other dry points ?
         if 'land_binary_mask' in env.keys():
@@ -896,51 +739,6 @@ class Reader(BaseReader,UnstructuredReader):
         """
         ind_covered = np.where(self.covers_positions(x, y))[0]
         return ind_covered ,x[ind_covered], y[ind_covered]
-
-    def apply_logarithmic_current_profile(self,env,z):
-        if not self.use_3d and 'sea_floor_depth_below_sea_level' in self.variables and 'x_sea_water_velocity' in self.variables :
-            log_profile_factor = self.logarithmic_current_profile(z,env['sea_floor_depth_below_sea_level'])
-            logger.debug('Applying logarithmic current profile to 2D current data [x_sea_water_velocity,y_sea_water_velocity] %s <= factor <=%s' % (np.min(log_profile_factor), np.max(log_profile_factor) ))
-            env['x_sea_water_velocity'] = log_profile_factor * env['x_sea_water_velocity']
-            env['y_sea_water_velocity'] = log_profile_factor * env['y_sea_water_velocity']
-            if False:
-                import matplotlib.pyplot as plt
-                plt.ion()
-                plt.plot(z/env['sea_floor_depth_below_sea_level'],log_profile_factor,'.')
-                import pdb;pdb.set_trace()
-                plt.close()
-
-    def logarithmic_current_profile(self, particle_z, total_depth):
-        ''' 
-        Extrapolation of depth-averaged currents to any vertical 
-        level of the water column assuming a logarithmic profile
-
-
-        Inputs :
-            particle_z : vertical position of particle in water column (negative down as used in Opendrift)
-            total_depth : total water depth at particle position (positive down)
-            z0 : roughness length, in meters (default, z0 = 0.001m )
-
-        Returns : 
-            Factors to be apply to interpolated raw depth-averaged currents
-
-        Reference :
-            Van Rijn, 1993. Principles of Sediment Transport in Rivers,
-            Estuaries and Coastal Seas
-
-        '''
-
-        # Opendrift convention : particle_z is 0 at the surface, negative down
-        # 
-        # The particle_z we need is the height of particle above seabed (positive)
-        part_z_above_seabed = np.abs(total_depth) + particle_z 
-        # note : taking the absolute value enbsure we have positive down depth (though it make any depth<0 wrong..but log profile probably not critical at these points anyway?)
-        # if we are sure that total_depth is positive down then we should just use >> part_z_above_seabed = total_depth + particle_z 
-        if not hasattr(self,'z0'): 
-            self.z0 = 0.001 # typical value for sandy seabed
-        log_fac = ( np.log(part_z_above_seabed / self.z0) ) / ( np.log(np.abs(total_depth)/self.z0)-1 ) # total_depth must be positive, hence the abs()
-        log_fac[np.where(part_z_above_seabed<=0)] = 1.0 # do not change velocity value
-        return log_fac
 
 ###########################
 # ReaderBlockUnstruct class
@@ -1010,69 +808,6 @@ class ReaderBlockUnstruct():
         # the KDtree passed to interpolator is actually a 3D KDtree, and it will be static now
         logger.debug('saving reader''s 3D KDtree (static) to ReaderBlockUnstruct')
         self.block_KDtree_3d  = KDtree
-
-        # # If we eventually use subset of nodes rather than full mesh, we'll need to re-compute the 2D KDtree
-        # # as well, instead of re-using the "full" one available from reader's init
-        # # logger.debug('Compute time-varying KDtree for 2D nearest-neighbor search') 
-        # # self.block_KDtree = cKDTree(np.vstack((self.x,self.y)).T)  # KDtree input to function = one computed during reader's __init__()
-
-        # if hasattr(self,'z_3d'):
-        #     # we need to compute a new KDtree for that time step using vertical coordinates at that time step
-        #     logger.debug('Compute time-varying KDtree for 3D nearest-neighbor search (i.e using ''zcor'') ')
-        #     # clean arrays if needed, especially z_3d (get rid of nan's) - keep only non-nan
-        #     # 
-        #     # check for nan's 
-        #     # if (self.z_3d != self.z_3d).any(): # not required
-        #     #     self.x_3d = self.x_3d[np.where(self.z_3d == self.z_3d)]
-        #     #     self.y_3d = self.y_3d[np.where(self.z_3d == self.z_3d)]
-        #     #     self.z_3d = self.z_3d[np.where(self.z_3d == self.z_3d)]
-        #     # check for infinite values
-        #     if np.isinf(self.z_3d).any() :
-        #         self.z_3d[np.where(np.isinf(self.z_3d))] = 15.0 #limit to +15.0m i.e. above msl
-            
-        #     self.block_KDtree_3d = cKDTree(np.vstack((self.x_3d,self.y_3d,self.z_3d)).T) 
-        #     # do we need copy_data=True ..probably not since "data" [self.x_3d,self.y_3d,self.z_3d] 
-        #     # will not change without the KDtree being recomputedplt
-
-        # # Mask any extremely large values, e.g. if missing netCDF _Fill_value
-        # filled_variables = set()
-        # for var in self.data_dict:
-        #     if isinstance(self.data_dict[var], np.ma.core.MaskedArray):
-        #         self.data_dict[var] = np.ma.masked_outside(
-        #             np.ma.masked_invalid(self.data_dict[var]), -1E+9, 1E+9)
-        #         # Convert masked arrays to numpy arrays
-        #         self.data_dict[var] = np.ma.filled(self.data_dict[var],
-        #                                            fill_value=np.nan)
-        #     # Fill missing data towards seafloor if 3D
-        #     if isinstance(self.data_dict[var], (list,)):
-        #         logger.warning('Ensemble data currently not extrapolated towards seafloor')
-        #     elif self.data_dict[var].ndim == 3:
-        #         filled = fill_NaN_towards_seafloor(self.data_dict[var])
-        #         if filled is True:
-        #             filled_variables.add(var)
-                
-        # if len(filled_variables) > 0:
-        #     logger.debug('Filled NaN-values toward seafloor for :'
-        #                   + str(list(filled_variables)))
-        
-        # # below probably not be relevant any longer
-        # if False:
-        #     # Set 1D (vertical) and 2D (horizontal) interpolators
-        #     try:
-        #         self.Interpolator2DClass = \
-        #             horizontal_interpolation_methods[interpolation_horizontal]
-        #     except Exception:
-        #         raise NotImplementedError(
-        #             'Valid interpolation methods are: ' +
-        #             str(horizontal_interpolation_methods.keys()))
-
-        #     try:
-        #         self.Interpolator1DClass = \
-        #             vertical_interpolation_methods[interpolation_vertical]
-        #     except Exception:
-        #         raise NotImplementedError(
-        #             'Valid interpolation methods are: ' +
-        #             str(vertical_interpolation_methods.keys()))
 
         if 'land_binary_mask' in self.data_dict.keys() and \
                 interpolation_horizontal != 'nearest':
