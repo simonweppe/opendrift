@@ -12,7 +12,8 @@ https://pypi.org/project/copernicusmarine
 """
 
 from datetime import datetime, timedelta
-import copernicus_marine_client as copernicusmarine
+# import copernicus_marine_client as copernicusmarine
+import copernicusmarine as copernicusmarine
 from opendrift.readers.reader_netCDF_CF_generic import Reader
 from opendrift.models.oceandrift import OceanDrift
 
