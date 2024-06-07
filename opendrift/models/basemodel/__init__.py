@@ -4700,7 +4700,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             logger.info('Calculating LCS for ' + str(t))
             # Forwards
             if RLCS is True:
-                o = self.clone()
+                o = self.clone() # full reset of opendrift object
                 o.seed_elements(lons.ravel(), lats.ravel(), time=t, z=z)
                 o.run(duration=duration, time_step=time_step)
                 f_x1, f_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
@@ -4708,7 +4708,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 lcs['RLCS'][i, :, :] = ftle(f_x1 - X, f_y1 - Y, delta, T)
             # Backwards
             if ALCS is True:
-                o = self.clone()
+                o = self.clone() # full reset of opendrift object
                 o.seed_elements(lons.ravel(),
                                 lats.ravel(),
                                 time=t + duration,
@@ -4917,12 +4917,12 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             logger.info('Calculating LCS for ' + str(t))
             # Forwards
             if RLCS is True:
-                o = self.clone()
+                o = self.clone() # full reset of opendrift object
                 o.seed_elements(lons.ravel(), lats.ravel(), time=t, z=z)
                 o.run(duration=duration, time_step=time_step)
                 f_x1, f_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
                                   o.history['lat'].T[-1].reshape(X.shape))
-                
+
                 lcs['R_C11'][i, :, :], \
                 lcs['R_C12'][i, :, :], \
                 lcs['R_C22'][i, :, :], \
@@ -4932,7 +4932,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
 
             # Backwards
             if ALCS is True:
-                o = self.clone()
+                o = self.clone() # full reset of opendrift object
                 o.seed_elements(lons.ravel(),
                                 lats.ravel(),
                                 time=t + duration,
