@@ -99,7 +99,7 @@ class Reader(BaseReader,UnstructuredReader):
             logger.info('Opening dataset: ' + filestr)
             if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
                 logger.info('Opening files with open_mfdataset')
-                self.dataset = xr.open_mfdataset(filename,chunks={'time': 1})
+                self.dataset = xr.open_mfdataset(filename,chunks={'time': 1}).drop_duplicates(dim = 'time', keep='last')
                 # in case of issues with file ordering consider inputting an explicit filelist 
                 # to reader, for example:
                 # 
