@@ -245,7 +245,7 @@ class Reader(BaseReader,UnstructuredReader):
 
         self.x = x
         self.y = y
-        
+
         if not (self.x>360.).any() and self.use_3d :
             logger.debug('Native coordinates in SCHISM outputs (SCHISM_hgrid_node_x,SCHISM_hgrid_node_y) are in lon/lat (WGS84)')
             logger.debug('Converting to user-defined proj4 defined when initialising reader : %s' % self.proj4)
@@ -275,7 +275,8 @@ class Reader(BaseReader,UnstructuredReader):
         # compute CKDtree of (static) 2D nodes using _build_ckdtree_() from unstructured.py
         # also output tiled version of X,Y,Z 
         logger.debug('Building CKDtree of static 3D nodes for nearest-neighbor search')
-        self.reader_KDtree = self.build_3d_kdtree() 
+        self.reader_KDtree = self.build_3d_kdtree()
+        logger.debug('Building CKDtree of static 3D nodes - %s zlevels : %s' % (len(np.unique(self.reader_KDtree.data[:,2])),np.unique(self.reader_KDtree.data[:,2]))) 
 
         # build convex hull of points for particle-in-mesh checks using _build_boundary_polygon_() from unstructured.py
         logger.debug('Building convex hull of nodes for particle''s in-mesh checks')
@@ -337,7 +338,6 @@ class Reader(BaseReader,UnstructuredReader):
         variables = {'x': self.x, 'y': self.y, 'z': 0.*self.y,
                      'time': nearestTime}
         
-
         # extracts the full slices of requested_variables at time indxTime
         for par in requested_variables:
             # if par not in ['x_sea_water_velocity','y_sea_water_velocity','land_binary_mask','x_wind','y_wind'] :
@@ -627,7 +627,6 @@ class Reader(BaseReader,UnstructuredReader):
                             'Buffer size (%s) must be increased.' %
                             (self.name, str(self.buffer)))
         self.timer_end('preparing') 
-
         ############################################################
         # Interpolate before/after blocks onto particles in space
         ############################################################
@@ -866,9 +865,11 @@ class ReaderBlockUnstruct():
                 # use KDtree to find nearest neighbours and interpolate based on distance, on 2D or 3D
                 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.query.html#scipy.spatial.cKDTree.query
                 # print(varname)
+
                 nb_closest_nodes = 3
                 DMIN=1.e-10
-                if data.shape[0] == self.x.shape[0] : # 2D data- full slice
+                # Note : we always use the 3D KDtree even if there is actually only vertical level in the SCHISM z-levels files
+                if False: # if data.shape[0] == self.x.shape[0] : # 2D data- full slice
                     #2D KDtree
                     dist,i=self.block_KDtree.query(np.vstack((x,y)).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
                     # dist = distance to nodes / i = index of nodes
@@ -885,7 +886,7 @@ class ReaderBlockUnstruct():
                         ax.scatter(self.x_3d[i[0]].data.tolist(),self.y_3d[i[0]].data.tolist(),self.z_3d[i[0]].data.tolist(),c='r', marker='o')
                         ax.scatter(x[0:1],y[0:1],z[0:1],c='g', marker='o')
                     ##############################3
-
+                
                 dist[dist<DMIN]=DMIN
                 fac=(1./dist)
                 data_interpolated = (fac*data.take(i)).sum(-1)/fac.sum(-1)
