@@ -82,7 +82,7 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
         }
         
     # The depth range (in m) which profiles shall cover
-    required_profiles_z_range = [-20, 0]
+    # required_profiles_z_range = [-20, 0]
 
     def __init__(self, *args, **kwargs):
 
@@ -425,13 +425,12 @@ def  stokes(pdiameter,g,pdensity,wdensity,dynamic_viscosity):
     # 
     # see https://github.com/zsylvester/notebooks/blob/master/grain_settling.ipynb for sanity checks
     # 
-    import pdb;pdb.set_trace()
 
     if(pdiameter > 0.0002).any():
         print("Some particle diameter > 200 µm! \n %s micros \n Stokes' Law will overestimate sinking velocity! \n Use another method!" % (pdiameter*1.e6))
     sinking = ((pdiameter**2)*g*(pdensity-wdensity)) / (18*dynamic_viscosity)
-    if sinking<0:
-        sinking = np.nan
+    sinking[sinking<0] = np.nan
+    sinking[pdiameter > 0.0002] = np.nan
     return sinking
 
 def turbulent(pdiameter,g,pdensity,wdensity,dynamic_viscosity) : #(rop,rof,d,visc,C2):
@@ -603,6 +602,8 @@ def van_rijn1984(pdensity,wdensity,g,kinematic_viscosity,pdiameter):
 
 #######################################################################################################################
 # UNESCO equations for seawater density and viscosity
+# 
+# Adapted from matlab tools in  https://svn.oss.deltares.nl/repos/openearthtools/trunk/matlab/general/phys_fun/
 # 
 # References
 # ----------

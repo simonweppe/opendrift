@@ -897,11 +897,16 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
 
         deltalon = 0.01  # grid
         deltalat = 0.01
+        #edit simon - use smaller grid for high-res grids
+        deltalon = 0.001  # grid
+        deltalat = 0.001
+
         numbuffer = 10
         lonmin = lon.min() - deltalon * numbuffer
         lonmax = lon.max() + deltalon * numbuffer
         latmin = lat.min() - deltalat * numbuffer
         latmax = lat.max() + deltalat * numbuffer
+        
         if not 'land_binary_mask' in self.env.priority_list:
             logger.info('No land reader added, '
                         'making a temporary landmask reader')
@@ -967,6 +972,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         indices = indices.ravel()
         lon[land != 0] = oceangridlons[indices]
         lat[land != 0] = oceangridlats[indices]
+
         return lon, lat
 
     @require_mode(mode=Mode.Ready)
