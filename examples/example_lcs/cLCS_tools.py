@@ -294,21 +294,20 @@ class compute_cLCS_squeezelines(object):
         '''
         # convert onject data to xarray 
         import xarray as xr
-        data_dict = {   'X': (('n_line', 'length_line',), obj.pxt,{'units': '-'}),
-                        'Y': (('n_line', 'length_line',), obj.pyt,{'units': '-'}),
-                        'Z': (('n_line', 'length_line',), obj.pzt,{'units': '-'}),
+        data_dict = {   'X': (('n_line', 'length_line',), self.pxt,{'units': '-'}),
+                        'Y': (('n_line', 'length_line',), self.pyt,{'units': '-'}),
+                        'Z': (('n_line', 'length_line',), self.pzt,{'units': '-'}),
                         }  
         ds_lines = xr.Dataset(data_vars=data_dict,  
-                            coords={'n_line': (('n_line'), range(0,obj.pxt.shape[0])), 'length_line': (('length_line'), range(0,obj.pxt.shape[1])) })
+                            coords={'n_line': (('n_line'), range(0,self.pxt.shape[0])), 'length_line': (('length_line'), range(0,self.pxt.shape[1])) })
         
         ds_lines['Z'] = ds_lines.Z.where(~np.isinf(ds_lines.Z),np.nan) # replace inf with nans
         # get rid of lines that have any nans
         ds_lines_clean = ds_lines.dropna(dim="n_line", how="any")
         ds_lines_clean.to_netcdf(fname)
-
         self.ds_xarray = ds_lines_clean # save xarray to object
 
-    def plot_squeezelines(self):
+    def plot_squeezelines(self,ax_handle=None):
 
         # # to plot simply do :
         # 
@@ -318,9 +317,10 @@ class compute_cLCS_squeezelines(object):
         #     ax.plot(ds_lines_clean.isel(n_line=ii).X,ds_lines_clean.isel(n_line=ii).Y,'red')
         
         import matplotlib.pyplot as plt;plt.ion();plt.show()
-        fig, ax = plt.subplots(1,1)
+        if ax_handle is None:
+            fig, ax_handle = plt.subplots(1,1)
         for ii in range(0,self.ds_xarray.dims['n_line']) : 
-            ax.plot(self.ds_xarray.isel(n_line=ii).X,self.ds_xarray.isel(n_line=ii).Y,'grey')
+            ax_handle.plot(self.ds_xarray.isel(n_line=ii).X,self.ds_xarray.isel(n_line=ii).Y,'grey')
 
 
 

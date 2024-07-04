@@ -895,10 +895,12 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
     def closest_ocean_points(self, lon, lat):
         """Return the closest ocean points for given lon, lat"""
 
-        deltalon = 0.01  # grid
+        deltalon = 0.01  # grid celle size ~1km 
         deltalat = 0.01
-        #edit simon - use smaller grid for high-res grids
-        deltalon = 0.001  # grid
+        #edit simon - use smaller grid cell size for high-res grids
+        # otherwise the "nearest" land point may actually be quite far 
+        # from initial release.
+        deltalon = 0.001  # grid celle size ~100m 
         deltalat = 0.001
 
         numbuffer = 10
