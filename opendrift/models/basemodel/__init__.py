@@ -897,7 +897,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
 
         deltalon = 0.01  # grid celle size ~1km 
         deltalat = 0.01
-        #edit simon - use smaller grid cell size for high-res grids
+        # edit simon - use smaller grid cell size for high-res grids
         # otherwise the "nearest" land point may actually be quite far 
         # from initial release.
         deltalon = 0.001  # grid celle size ~100m 

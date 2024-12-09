@@ -747,13 +747,14 @@ class Environment(Timeable, Configurable):
                             np.ma.mask_or(combined_mask,
                                           np.ma.getmask(tmp_var),
                                           shrink=False)
-                        combined_mask = combined_mask.squeeze() # added .squeeze() as shape can be wrong (simon Weppe). 
+                        combined_mask = combined_mask.squeeze() # (simon Weppe) >> added .squeeze() as shape can be wrong  
                 try:
-                    if len(missing_indices) != len(combined_mask):
+                    if len(missing_indices) != len(combined_mask): 
                         # TODO: mask mismatch due to 2 added points
                         raise ValueError('Mismatch of masks')
-                    missing_indices = missing_indices[combined_mask]
+                    missing_indices = missing_indices[combined_mask] 
                 except Exception as ex:  # Not sure what is happening here
+                    import pdb;pdb.set_trace()
                     logger.info('Problems setting mask on missing_indices!')
                     logger.exception(ex)
                 if (type(missing_indices)

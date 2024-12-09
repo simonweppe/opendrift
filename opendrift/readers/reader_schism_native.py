@@ -113,8 +113,8 @@ class Reader(BaseReader,UnstructuredReader):
             'vertical_velocity' : 'upward_sea_water_velocity',
             'wetdry_elem': 'land_binary_mask',
             'wind_speed' : 'x_wind',
-            'wind_speed' : 'y_wind' }
-            # diffusivity
+            'wind_speed' : 'y_wind' , }
+            # 'diffusivity' : 'ocean_vertical_diffusivity'}
             # viscosity
 
             # elev = 1 !0: off; 1: on - elev. [m]
@@ -1492,7 +1492,6 @@ class ReaderBlockUnstruct():
                 # ########################################################
  
                 # horizontal = self._interpolate_horizontal_layers(data, nearest=nearest)
-            
             if profiles is not None and varname in profiles:
                 # not really functional yet...we should interpolate data at top and bottom of profiles here,
                 profiles_dict[varname] = data_interpolated # horizontal

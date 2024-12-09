@@ -91,11 +91,12 @@ class Reader(BaseReader,UnstructuredReader):
                 logger.info('Opening files with open_zarr')
                 self.dataset = xr.open_zarr(filestr)
             else:
-                logger.info('Opening file with open_dataset')
+                logger.info('Opening netcdf file with open_dataset')
                 import pdb;pdb.set_trace() # not tested yet
                 self.dataset = xr.open_dataset(filestr,chunks={'time': 1})
             # need to edit the cons name for correct use in oceantide later on
             self.dataset['con']=[x.strip().upper() for x in self.dataset['cons'].values]
+            self.check_tidal_amp_format() # check tidal amp/pha format and convert to complex numbers if necessary
 
         except Exception as e:
             raise ValueError(e)
@@ -280,7 +281,20 @@ class Reader(BaseReader,UnstructuredReader):
         # Dictionaries to store blocks of data for reuse (buffering)
         self.var_block_before = {}  # Data for last timestep before present
         self.var_block_after = {}   # Data for first timestep after present
-        
+
+    def check_tidal_amp_format(self):
+        # check in which format the tidal consistuents' amplitude and phases are stored
+        if 'h_im' in self.dataset.variables :
+            # we need to convert into complex amplitudes
+            #  as in oceantide :
+            # https://github.com/oceanum/oceantide/blob/master/oceantide/input/oceantide.py
+            for v in ["h", "u", "v"]:
+                self.dataset[v] = self.dataset[f"{v}_re"] + 1j * self.dataset[f"{v}_im"] # > make sure to use +j here.
+        elif 'e_pha' in self.dataset.variables :
+            print('check tide cons file format - not tested yet')
+            import pdb;pdb.set_trace()
+
+
     def build_ckdtree(self,x,y):
         # This is done using cython-based cKDTree from scipy for quick nearest-neighbor search
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html
