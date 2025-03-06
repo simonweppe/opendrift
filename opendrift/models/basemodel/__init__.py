@@ -4777,9 +4777,10 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         pass
 
 
-#############################
-# New functions for LCS computations - added s.weppe
-#############################
+##########################################################
+# New functions for Lagrangian Coherent Structures
+# Authors Simon Weppe - Calypso Science
+##########################################################
 
     def calculate_green_cauchy_tensor(self,
                        reader=None,
@@ -4835,7 +4836,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         lcs, ds_lcs = calculate_green_cauchy_tensor()
 
         # Compute LCS for a specific reader, time range, and domain
-        lcs, ds_lcs = calculate_green_cauchy_tensor(reader='EPSG:2193',
+        lcs, ds_lcs = calculate_green_cauchy_tensor(reader=reader_current,
                                                     time=datetime(2024, 4, 8, 12),
                                                     duration=timedelta(minutes=15),
                                                     domain=(-1000, 1000, -1000, 1000),
@@ -5028,7 +5029,185 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         ds_lcs = xr.Dataset(data_vars=data_dict, 
                         coords={'lon2D': (('lat', 'lon'), lcs['lon']), 'lat2D': (('lat', 'lon'), lcs['lat']), 'time': lcs['time']})
         return lcs, ds_lcs
-    
+
+    def calculate_LD(self,
+                        reader=None,
+                        delta=None,
+                        domain=None,
+                        time=None,
+                        time_step=None,
+                        duration=None,
+                        z=0,
+                        cartesian_epsg = None):
+            """
+            Calculate <Lagrangian Descriptors> to inform on Lagrangian Coherent Structures (LCS).
+
+            Mendoza, C., & Mancho, A. M. (2010). Hidden geometry of ocean flows. Physical review letters, 105(3), 038501.
+
+            The function provides the "M function" which is is a particular case of a Lagrangian Descriptor that is computed by 
+            integrating the particle trajectory distance over its lifetime from t0-integration_time to t0+integration_time
+
+            A skeleton of the stable and unstable manifolds of hyperbolic trajectories in time dependent flows 
+            can be constructed with the technique that is referred to as Lagrangian descriptors, based on the function M.
+            Relative to FTLE this allows capturing both hyperbolic and non-hyperbolic regions (repulsive/attractive)
+            
+            (García-Garrido, V. J., Ramos, A., Mancho, A. M., Coca, J., & Wiggins, S. (2016). A dynamical systems perspective 
+            for a real-time response to a marine oil spill. Marine pollution bulletin, 112(1-2), 201-210.)
+            
+            There are other Lagrangian Descriptors. See online book :
+            https://champsproject.github.io/lagrangian_descriptors/docs/authors.html
+            
+            with codes:
+            https://champsproject.github.io/lagrangian_descriptors/content/examples.html
+
+            Parameters:
+            reader (str or pyproj.Proj): Data reader object or projection string (proj4). If None,
+                the first available reader in the environment is used.
+            delta (float): Spacing between seed points in the seeding domain (in meters).
+            domain (list): [xmin, xmax, ymin, ymax] defining the spatial domain for seeding (same coords system as <reader>).
+                If None, the domain is automatically determined based on the reader's extent.
+
+            time (datetime or list): Start time or list of times for which LCS is computed.
+            time_step (timedelta, or float): Time step used for numerical integration of trajectories.
+            duration (timedelta, or float): Duration of particle advection for LCS computations.
+            cartesian_epsg (int): EPSG code of the Cartesian coordinate system to use for seeding
+                when the reader's native coordinate system is lon/lat (WGS84).
+
+            Returns:
+            tuple: A tuple containing two items:
+                - LD (dict): Dictionary containing the Lagrangian Descriptors (LD)
+                - ds_LD (xarray.Dataset): Dataset containing LD data with M function
+
+            Examples:
+            # Initialize LCS computation using default parameters
+            lcs, ds_lcs = calculate_LD()
+
+            # Compute LCS for a specific reader, time range, and domain
+            lcs, ds_lcs = calculate_LD( reader=reader_current,
+                                        time=datetime(2024, 4, 8, 12),
+                                        duration=timedelta(minutes=15),
+                                        domain=(-1000, 1000, -1000, 1000),
+                                        cartesian_epsg=2193)
+            """
+
+            if reader is None:
+                logger.info('No reader provided, using first available:')
+                reader = list(self.env.readers.items())[0][1]
+                logger.info(reader.name)
+            if isinstance(reader, pyproj.Proj):
+                proj = reader
+            elif isinstance(reader, str):
+                proj = pyproj.Proj(reader)
+            # added simon, if proj4 is defined but self.proj was not instanciated
+            elif hasattr(reader, 'proj4') :
+                proj = pyproj.Proj(reader.proj4)
+            else :
+                proj = reader.proj
+
+            # from opendrift.models.physics_methods import ftle
+
+            if not isinstance(duration, timedelta):
+                duration = timedelta(seconds=duration)
+
+            # define seeding domain 
+            if  not reader.proj.crs.to_epsg() == 4326 : #not np.logical_or(reader.proj.crs.to_epsg() == 4326) ,np.abs(reader.xmax)<360) :  
+                # reader coordinates system is projected/cartesian, so we can use it 
+                # to define the seeding domain
+                if domain == None:
+                    xs = np.arange(reader.xmin, reader.xmax, delta)
+                    ys = np.arange(reader.ymin, reader.ymax, delta)
+                else:
+                    xmin, xmax, ymin, ymax = domain
+                    xs = np.arange(xmin, xmax, delta)
+                    ys = np.arange(ymin, ymax, delta)
+            else :
+                # reader is natively in lon,lat, we need a user-defined coordinate system to use, 
+                # to prepare the seeding frame 
+                logger.info('reader native coordinate system is wgs4, applying user-defined <cartesian_epsg> to define seeding frame used in LCS computation')
+                if cartesian_epsg is None :
+                    from pyproj import CRS
+                    logger.error('You need to specify a <cartesian_epsg> in calculate_green_cauchy_tensor() to define (cartesian) seeding grid')
+                    import pdb;pdb.set_trace()
+                else:
+                    # define the cartesian projection
+                    proj = pyproj.Proj("EPSG:%s" % cartesian_epsg)
+                    if domain == None: # use entire reader extents as domain
+                        # projected reader extents
+                        xmin,ymin = proj(reader.xmin,reader.ymin)
+                        xmax,ymax = proj(reader.xmax,reader.ymax)
+                    else: # use user-defined domain
+                        xmin, xmax, ymin, ymax = domain
+                        if xmax<=360: # if user defined the domain in lon,lat, we need to convert to cartesian
+                            xmin,ymin = proj(xmin,ymin)
+                            xmax,ymax = proj(xmax,ymax)
+                            logger.info('converting user-defined LCS domain from WGS84 (%s) to cartesian (%s)' % (domain,[xmin,xmax,ymin,ymax]))
+                            logger.info('Note domain must be defined as [Xmin,Xmax,Ymin,Ymax]')
+                    xs = np.arange(xmin, xmax, delta)
+                    ys = np.arange(ymin, ymax, delta)  
+            logger.debug('seeding frame for LCS computation (cartesian) [xmin=%s,xmax=%s,ymin=%s,ymax=%s]' % (xs[0],xs[-1],ys[0],ys[-1]))
+            # final seeding frame
+            X, Y = np.meshgrid(xs, ys)
+            lons, lats = proj(X, Y, inverse=True)
+
+            if time is None:
+                time = reader.start_time
+            if not isinstance(time, list):
+                time = [time]
+            # dictionary to hold M function
+            LD = {'time': time, 'lon': lons, 'lat': lats}
+            # LCS and C variables for repulsive LCS
+            LD['M'] = np.zeros((len(time), len(ys), len(xs)))
+            T = np.abs(duration.total_seconds())
+
+            for i, t in enumerate(time):
+                logger.info('Calculating LD for ' + str(t))
+                # simulations must be run from t0-integration_time to t0+integration_time
+                # ie. total run time = 2 * integration_time
+                seed_time = t - duration
+                o = self.clone() # full reset of opendrift object
+                o.seed_elements(lons.ravel(), lats.ravel(), time = seed_time, z=z)
+                o.run(duration= 2 * duration, time_step=time_step)
+                # now compute arc_length along each individual particles
+                total_length, distances, speeds = o.get_trajectory_lengths()
+                M = total_length.reshape(X.shape)
+                M.mask=[M==0] # mask the array with land
+                LD['M'][i, :, :] = M 
+                
+            # mask arrays      
+            for var in LD.keys():
+                if var not in ['time', 'lon', 'lat']:
+                    LD[var] = np.ma.masked_invalid(LD[var])
+
+            # Mask landpoints
+            # There must be a better way to do this on xarray object
+            # using advanced indexing e.g.
+            # https://gist.github.com/robbibt/17bef639a26acf3c86091ac64b8c4bb6
+            if False:
+                # is it needed ? 
+                logger.debug('Masking land points for LCS ')
+                self.env.finalize()
+                landmask = self.env.get_environment(['land_binary_mask'],
+                                                    lon=lons.ravel(), 
+                                                    lat=lats.ravel(),
+                                                    z=0.0*lons.ravel(),
+                                                    time=time[0],
+                                                    profiles=None)
+                landmask = np.array(landmask[0].tolist()).squeeze().reshape(lons.shape)
+                landmask[np.isnan(landmask)]=1 # in case some nans are returned
+                # tile along time dimension
+                landmask_all = np.tile(landmask,(len(time),1,1))
+                LD['M'][landmask_all==1] = np.nan
+            
+            # Convert LCS data to xarray dataset
+            import xarray as xr
+            data_dict = {  'M': (('time', 'lat', 'lon'), LD['M'].data,{'units': '-', 'description': 'Lagrangian Descriptor - M function'}),
+                        'X' : (( 'lat', 'lon'), X,{'units': 'm', 'description': 'cartesian seeding x-coord'} ),
+                        'Y' : (( 'lat', 'lon'), Y,{'units': 'm', 'description': 'cartesian seeding y-coord'} ),
+                        }  
+            ds_LD = xr.Dataset(data_vars=data_dict, 
+                            coords={'lon2D': (('lat', 'lon'), LD['lon']), 'lat2D': (('lat', 'lon'), LD['lat']), 'time': LD['time']})
+            return LD, ds_LD
+
 def GC_tensor(X, Y, delta, duration):
 
     """Calculate Green Cauchy Tensors

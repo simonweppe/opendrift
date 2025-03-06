@@ -754,7 +754,7 @@ class Environment(Timeable, Configurable):
                         raise ValueError('Mismatch of masks')
                     missing_indices = missing_indices[combined_mask] 
                 except Exception as ex:  # Not sure what is happening here
-                    import pdb;pdb.set_trace()
+                    # import pdb;pdb.set_trace()
                     logger.info('Problems setting mask on missing_indices!')
                     logger.exception(ex)
                 if (type(missing_indices)
