@@ -14,23 +14,32 @@
 #
 # Copyright 2024, Knut-Frode Dagestad, MET Norway
 
+import os
 import logging
-logger = logging.getLogger(__name__)
 from opendrift.readers.reader_netCDF_CF_generic import Reader as Reader_CF_generic
+logger = logging.getLogger(__name__)
 
 class Reader(Reader_CF_generic):
     '''A wrapper around reader_netCDF_CF_generic for CMEMS datasets'''
 
-    def __init__(self, dataset_id, username=None, password=None):
+    def __init__(self, dataset_id, username=None, password=None, cache_dir=None):
 
         try:
             import copernicusmarine
         except:
             raise ValueError('Copernicus Marine Client is not installed')
 
+        if username is not None and password is not None:
+            logger.info(f'Using CMEMS password for user {username} from provided variables')
+
+        if username is None:
+            username = os.getenv('COPERNICUSMARINE_SERVICE_USERNAME')
+            password = os.getenv('COPERNICUSMARINE_SERVICE_PASSWORD')
+            if username is not None and password is not None:
+                logger.info(f'Using CMEMS password for user {username} from environment variables COPERNICUSMARINE_SERVICE_USERNAME and COPERNICUSMARINE_SERVICE_PASSWORD')
+
         if username is None:
             try:
-                import os
                 import netrc
                 try:
                     n = netrc.netrc()
@@ -51,9 +60,14 @@ class Reader(Reader_CF_generic):
                 pass
 
         if username is None:
-            raise ValueError('To use CMEMS datasets, provide username and password, or store these in .netrc file in home folder or main opendrift folder with machine name "copernicusmarine"')
+            raise ValueError('To use CMEMS datasets, provide username and password, or store these in .netrc file in home folder or main opendrift folder with machine name "copernicusmarine". Alternatively, creadentials can be stored as environment variables COPERNICUSMARINE_SERVICE_USERNAME and COPERNICUSMARINE_SERVICE_PASSWORD.')
 
-        ds = copernicusmarine.open_dataset(dataset_id=dataset_id, username=username, password=password)
+        ds = copernicusmarine.open_dataset(
+            dataset_id=dataset_id,
+            username=username, password=password,
+            chunk_size_limit=0  # Default chunking size is 50 for time, thus this is strictly necessary
+            )
+
         ds['name'] = str(dataset_id)
 
         # Run constructor of parent Reader class

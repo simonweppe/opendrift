@@ -72,9 +72,16 @@ class BaseReader(Variables, Combine, Filter):
         'barotropic_sea_water_x_velocity': 'sea_ice_x_velocity',
         'barotropic_sea_water_y_velocity': 'sea_ice_y_velocity',
         'salinity_vertical_diffusion_coefficient' : 'ocean_vertical_diffusivity',
+        'ocean_vertical_salt_diffusivity' : 'ocean_vertical_diffusivity',
+        'ocean_vertical_tracer_diffusivity' : 'ocean_vertical_diffusivity',
         'ocean_mixed_layer_thickness_defined_by_sigma_theta': 'ocean_mixed_layer_thickness',
         'sea_floor_depth_below_sea_surface' : 'sea_floor_depth_below_sea_level',
         'sea_floor_depth_below_geoid' : 'sea_floor_depth_below_sea_level',
+        'sea_surface_elevation': 'sea_surface_height',
+        'sea_surface_elevation_anomaly': 'sea_surface_height',
+        'sea_surface_height_above_mean_sea_level': 'sea_surface_height',
+        'sea_surface_height_above_sea_level': 'sea_surface_height',
+        'sea_surface_height_above_geoid': 'sea_surface_height',
         'mass_concentration_of_suspended_matter_in_sea_water' : 'spm'
         }
 
@@ -95,7 +102,10 @@ class BaseReader(Variables, Combine, Filter):
                                  'surface_northward_geostrophic_sea_water_velocity_assuming_sea_level_for_geoid'],
         'x_wind': 'eastward_wind', 'y_wind': 'northward_wind',
         'sea_surface_wave_stokes_drift_x_velocity': 'eastward_surface_stokes_drift',
-        'sea_surface_wave_stokes_drift_y_velocity': 'northward_surface_stokes_drift'}
+        'sea_surface_wave_stokes_drift_y_velocity': 'northward_surface_stokes_drift',
+        'sea_ice_x_velocity': 'eastward_sea_ice_velocity',
+        'sea_ice_y_velocity': 'northward_sea_ice_velocity',
+        }
 
     def __init__(self):
         """Common constructor for all readers"""
@@ -226,7 +236,8 @@ class BaseReader(Variables, Combine, Filter):
         self.clipped = numpix
 
     def plot(self, variable=None, vmin=None, vmax=None, time=None,
-             filename=None, title=None, buffer=1, lscale='auto'):
+             filename=None, title=None, buffer=1, lscale='auto',
+             cmap = None, cbar_label = None):
         """Plot geographical coverage of reader."""
 
         fig = plt.figure()
@@ -250,8 +261,6 @@ class BaseReader(Variables, Combine, Filter):
             x0 = (self.xmin + self.xmax) / 2
             y0 = (self.ymin + self.ymax) / 2
             lon0, lat0 = self.xy2lonlat(x0, y0)
-            lon0 = lon0[0]
-            lat0 = lat0[0]
             sp = ccrs.Stereographic(central_longitude=lon0, central_latitude=lat0)
             latmax = np.maximum(latmax, lat0)
             latmin = np.minimum(latmin, lat0)
@@ -263,11 +272,11 @@ class BaseReader(Variables, Combine, Filter):
 
         if lscale == 'auto':  # Custom lscale - this should be generalized to Basemodel also
             s = cfeature.AdaptiveScaler('coarse',
-                (('low', 100), ('intermediate', 20), ('high', 5), ('full', 1)))
+                (('low', 100), ('intermediate', 20), ('high', 1), ('full', .2)))
             lscale = s.scale_from_extent([lonmin, lonmax, latmin, latmax])
 
         # GSHHS coastlines
-        f = cfeature.GSHHSFeature(scale=lscale, levels=[1])
+        f = cfeature.GSHHSFeature(scale=lscale, levels=[1,5,6])
         f._geometries_cache = {}
         ax.add_geometries(
             #f.intersecting_geometries([lonmin, lonmax, latmin, latmax]),
@@ -322,8 +331,14 @@ class BaseReader(Variables, Combine, Filter):
         if time is None:
             time = self.start_time
         if variable is not None:
-            rx = np.array([self.xmin, self.xmax])
-            ry = np.array([self.ymin, self.ymax])
+            if self.global_coverage():
+                ax.set_global()
+                # Spaced by 500 to avoid splitting in west/east blocks
+                rx = np.linspace(self.xmin, self.xmax, num=int(np.ceil(self.numx/500))+1)
+                ry = np.linspace(self.ymin, self.ymax, num=len(rx))
+            else:
+                rx = np.array([self.xmin, self.xmax])
+                ry = np.array([self.ymin, self.ymax])
             if variable in self.derived_variables:
                 data = self.get_variables(self.derived_variables[variable], time, rx, ry)
                 self.__calculate_derived_environment_variables__(data)
@@ -345,10 +360,13 @@ class BaseReader(Variables, Combine, Filter):
                 p = sp.transform_points(ccrs.PlateCarree(), rlon, rlat)
                 mapx = p[:,:,0]
                 mapy = p[:,:,1]
-                mappable = ax.pcolormesh(mapx, mapy, data[variable], vmin=vmin, vmax=vmax)
+                mappable = ax.pcolormesh(mapx, mapy, data[variable], vmin=vmin, vmax=vmax,  cmap=cmap)
 
             cbar = fig.colorbar(mappable, orientation='horizontal', pad=.05, aspect=30, shrink=.4)
-            cbar.set_label(variable)
+            if cbar_label:
+                cbar.set_label(cbar_label)
+            else:
+                cbar.set_label(variable)
 
         try:  # Activate figure zooming
             mng = plt.get_current_fig_manager()

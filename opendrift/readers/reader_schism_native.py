@@ -1159,7 +1159,7 @@ class Reader(BaseReader,UnstructuredReader):
             #              resolution='c', projection='cyl')
 
         # GSHHS coastlines
-        f = cfeature.GSHHSFeature(scale=lscale, levels=[1],
+        f = cfeature.GSHHSFeature(scale=lscale, levels=[1,5,6],
                                   facecolor=cfeature.COLORS['land'])
         ax.add_geometries(
             f.intersecting_geometries([lonmin, lonmax, latmin, latmax]),
@@ -1300,7 +1300,6 @@ class ReaderBlockUnstruct():
                     This is read from reader object, so that it is not recomputed every time
 
     """
-    logger = logging.getLogger('opendrift')  # using common logger
 
     def __init__(self, data_dict, 
                  KDtree = None,

@@ -6,20 +6,22 @@ if __name__ == '__main__':
     matplotlib.use('TKAgg')
 
 import sys
+import logging
 import os
 from datetime import datetime, timedelta
 import numpy as np
 
 from PIL import ImageTk, Image
+logging.getLogger('PIL').setLevel(logging.INFO)
 import tkinter as tk
 from tkinter import ttk
-from importlib import resources
+from importlib.resources import files
 import opendrift
 from opendrift.models.oceandrift import OceanDrift
 from opendrift.models.openoil import OpenOil
 from opendrift.models.leeway import Leeway
 from opendrift.models.shipdrift import ShipDrift
-from opendrift.models.openberg_old import OpenBergOld
+from opendrift.models.openberg import OpenBerg
 from opendrift.models.plastdrift import PlastDrift
 from opendrift.models.radionuclides import RadionuclideDrift
 
@@ -86,7 +88,7 @@ class OpenDriftGUI(tk.Tk):
 
     # Supported models as dictionary {model_name:model_class}
     opendrift_models = {m.__name__:m for m in
-        [Leeway, OpenOil, ShipDrift, OpenBergOld, OceanDrift, PlastDrift, RadionuclideDrift]}
+        [Leeway, OpenOil, ShipDrift, OpenBerg, OceanDrift, PlastDrift, RadionuclideDrift]}
 
     extra_args = {'OpenOil': {'location': 'NORWAY'}}
 
@@ -340,8 +342,9 @@ class OpenDriftGUI(tk.Tk):
         self.text = tk.Text(self.output, wrap="word", height=18)
         self.text.grid(row=60, columnspan=6, sticky='nsw')
         self.text.tag_configure("stderr", foreground="#b22222")
-        sys.stdout = TextRedirector(self.text, "stdout")
-        sys.stderr = TextRedirector(self.text, "stderr")
+        if os.getenv('OPENDRIFT_GUI_OUTPUT', 'gui') == 'gui':
+            sys.stdout = TextRedirector(self.text, "stdout")
+            sys.stderr = TextRedirector(self.text, "stderr")
         s = tk.Scrollbar(self)
         s.grid(row=60, column=6, sticky='ns')
         s.config(command=self.text.yview)
@@ -363,10 +366,9 @@ class OpenDriftGUI(tk.Tk):
         ##############
         self.set_model(list(self.opendrift_models)[0])
 
-        with resources.open_text('opendrift.scripts', 'data_sources.txt') as fd:
+        with open(files('opendrift.scripts').joinpath('data_sources.txt')) as fd:
             forcingfiles = fd.readlines()
 
-        print(forcingfiles)
         for i, ff in enumerate(forcingfiles):
             tk.Label(self.forcing, text=ff.strip(), wraplength=650, font=('Courier', 8)).grid(
                      row=i, column=0, sticky=tk.W)
@@ -475,28 +477,23 @@ class OpenDriftGUI(tk.Tk):
 
     def validate_config(self, value_if_allowed, prior_value, key):
         """From config menu selection."""
-        print('Input: %s -> %s', (key, value_if_allowed))
         if value_if_allowed == 'None':
-            print('Setting None value')
             return True
         if value_if_allowed in ' -':
-            print('Allowing temporally empty or minus sign')
             return True
         sc = self.o._config[key]
         if sc['type'] in ['int', 'float']:
             try:
                 value_if_allowed = float(value_if_allowed)
             except:
-                print('Nonumber')
                 return False
         try:
-            print('Setting: %s -> %s', (key, value_if_allowed))
             self.o.set_config(key, value_if_allowed)
             return True
         except:
             return False
 
-    def set_model(self, model, rebuild_gui=True):
+    def set_model(self, model, rebuild_gui=True, logfile=None):
 
         # Creating simulation object (self.o) of chosen model class
         print('Setting model: ' + model)
@@ -504,7 +501,12 @@ class OpenDriftGUI(tk.Tk):
             extra_args = self.extra_args[model]
         else:
             extra_args = {}
-        self.o = self.opendrift_models[model](**extra_args)
+        terminal_output = [logging.StreamHandler(sys.stdout)]
+        if logfile is None:
+            logfile = terminal_output
+        else:
+            logfile = [logfile] + terminal_output
+        self.o = self.opendrift_models[model](**extra_args, logfile=logfile)
         self.modelname = model  # So that new instance may be initiated at repeated run
 
         # Setting GUI-specific default config values
@@ -546,7 +548,8 @@ class OpenDriftGUI(tk.Tk):
             else:
                 tab = self.subconfig[key.split(':')[0]]
                 keystr = ''.join(key.split(':')[1:])
-
+            if keystr == '':
+                keystr = key
             lab = tk.Label(tab, text=keystr)
             lab.grid(row=i, column=1, rowspan=1)
             if sc[key]['type'] in ['float', 'int']:
@@ -562,6 +565,19 @@ class OpenDriftGUI(tk.Tk):
                 tk.Label(tab, text='[%s]  min: %s, max: %s' % (
                     sc[key]['units'], sc[key]['min'], sc[key]['max'])
                         ).grid(row=i, column=3, rowspan=1)
+            if sc[key]['type'] == 'str':
+                self.config_input_var[i] = tk.StringVar()
+                vcmd = (tab.register(self.validate_config),
+                    '%P', '%s', key)
+                max_length = sc[key].get('max_length') or 12
+                max_length = np.minimum(max_length, 64)
+                self.config_input[i] = tk.Entry(
+                    tab, textvariable=self.config_input_var[i],
+                    validate='key', validatecommand=vcmd,
+                    width=max_length, justify=tk.RIGHT)
+                self.config_input[i].insert(0, str(sc[key]['default']))
+                self.config_input[i].grid(row=i, column=2, columnspan=3, rowspan=1)
+                #tk.Label(tab, text='').grid(row=i, column=3, rowspan=1)
             elif sc[key]['type'] == 'bool':
                 if self.o.get_config(key) is True:
                     value = 1
@@ -630,9 +646,11 @@ class OpenDriftGUI(tk.Tk):
                     text=sc[i]['description'])
             else:
                 self.seed_input_var[i] = tk.StringVar()
+                max_length = sc[i].get('max_length') or 12
+                max_length = np.minimum(max_length, 64)
                 self.seed_input[i] = tk.Entry(
                     self.seed_frame, textvariable=self.seed_input_var[i],
-                    width=12, justify=tk.RIGHT)
+                    width=max_length, justify=tk.RIGHT)
                 self.seed_input[i].insert(0, actual_val)
             self.seed_input[i].grid(row=num, column=1)
 
@@ -706,11 +724,6 @@ class OpenDriftGUI(tk.Tk):
     def run_opendrift(self):
         sys.stdout.write('running OpenDrift')
 
-        # Creating fresh instance of the current model, but keeping config
-        adjusted_config = self.o._config
-        self.set_model(self.modelname, rebuild_gui=False)
-        self.o._config = adjusted_config
-
         try:
             self.budgetbutton.destroy()
         except Exception as e:
@@ -735,6 +748,15 @@ class OpenDriftGUI(tk.Tk):
             local_end = local.localize(end_time, is_dst=None)
             start_time = local_start.astimezone(pytz.utc).replace(tzinfo=None)
             end_time = local_end.astimezone(pytz.utc).replace(tzinfo=None)
+
+        # Creating fresh instance of the current model, but keeping config
+        adjusted_config = self.o._config
+        if self.has_diana is True:
+            logfile = self.outputdir + '/opendrift_' + self.modelname + start_time.strftime('_%Y%m%d_%H%M.log')
+        else:
+            logfile = None
+        self.set_model(self.modelname, rebuild_gui=False, logfile=logfile)
+        self.o._config = adjusted_config
 
         sys.stdout.flush()
         lon = float(self.lon.get())
@@ -765,7 +787,7 @@ class OpenDriftGUI(tk.Tk):
                     nothing
             self.o.set_config(se, val)
 
-        with resources.path('opendrift.scripts', 'data_sources.txt') as f:
+        with files('opendrift.scripts').joinpath('data_sources.txt') as f:
             self.o.add_readers_from_file(f)
 
         self.o.seed_cone(lon=lon, lat=lat, radius=radius,
@@ -788,7 +810,7 @@ class OpenDriftGUI(tk.Tk):
 
         # Starting simulation run
         self.o.run(steps=duration, **extra_args)
-        print(self.o)
+        logging.getLogger('opendrift').info(self.o)
 
         try:
             os.chmod(extra_args['outfile'], 0o666)
@@ -863,4 +885,11 @@ def main():
     OpenDriftGUI().mainloop()
 
 if __name__ == '__main__':
+
+    # Add any argument to redirect output to terminal instead of GUI window.
+    # TODO: must be a better way to pass arguments to Tkinter?
+    if len(sys.argv) > 1:
+        os.environ['OPENDRIFT_GUI_OUTPUT'] = 'terminal'
+    else:
+        os.environ['OPENDRIFT_GUI_OUTPUT'] = 'gui'
     OpenDriftGUI().mainloop()

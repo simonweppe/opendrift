@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Fjord
-==================================
+=====
 """
 
 from datetime import timedelta
@@ -21,8 +21,6 @@ o.add_reader([reader_norkyst, reader_arome])
 
 #%%
 # Seed elements
-#time = [reader_arome.start_time,
-#        reader_arome.start_time + timedelta(hours=5)]
 time = reader_arome.start_time
 object_type = 1  # 1: Person-in-water (PIW), unknown state (mean values)
 o.seed_elements(lon=6.55, lat=61.117594, radius=50, number=5000, time=time, object_type=object_type)
@@ -40,4 +38,3 @@ o.animation()
 # .. image:: /gallery/animations/example_fjord_0.gif
 
 o.plot()
-

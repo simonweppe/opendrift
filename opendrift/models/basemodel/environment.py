@@ -64,35 +64,23 @@ class Environment(Timeable, Configurable):
                 'description': description_constant
             }
             c['environment:fallback:%s' % v] = {
-                'type':
-                'float',
-                'min':
-                minval,
-                'max':
-                maxval,
-                'units':
-                units,
-                'default':
-                self.required_variables[v]['fallback']
-                if 'fallback' in self.required_variables[v] else None,
-                'level':
-                CONFIG_LEVEL_BASIC,
-                'description':
-                description_fallback
+                'type': 'float',
+                'min': minval,
+                'max': maxval,
+                'units': units,
+                'default': self.required_variables[v]['fallback'] if 'fallback' in self.required_variables[v] else None,
+                'level': CONFIG_LEVEL_BASIC,
+                'description': description_fallback
             }
         self._add_config(c)
 
         self._add_config({
             'general:use_auto_landmask': {
-                'type':
-                'bool',
-                'default':
-                True,
-                'description':
-                'A built-in GSHHG global landmask is used if True, '
-                'otherwise landmask is taken from reader or fallback value.',
-                'level':
-                CONFIG_LEVEL_ADVANCED
+                'type': 'bool',
+                'default': True,
+                'description': 'A built-in GSHHG global landmask is used if True, '
+                    'otherwise landmask is taken from reader or fallback value.',
+                'level': CONFIG_LEVEL_ADVANCED
             },
             'drift:current_uncertainty': {
                 'type': 'float',
@@ -639,10 +627,10 @@ class Environment(Timeable, Configurable):
                         profiles_from_reader = None
                     env_tmp, env_profiles_tmp = \
                         reader.get_variables_interpolated(
-                            variable_group, profiles_from_reader,
-                            profiles_depth, time,
-                            lon[missing_indices], lat[missing_indices],
-                            z[missing_indices], self.proj_latlon)
+                            variable_group, profiles = profiles_from_reader,
+                            profiles_depth = profiles_depth, time = time,
+                            lon=lon[missing_indices], lat=lat[missing_indices],
+                            z=z[missing_indices], rotate_to_proj=self.proj_latlon)
 
                 except NotCoveredError as e:
                     logger.info(e)

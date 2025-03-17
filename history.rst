@@ -1,14 +1,152 @@
 History
 =======
 
+2025-02-11 / Release v1.13.0
+----------------------------
+* Major internal change: recarray ``self.history`` is replaced with Xarray dataset ``self.result``, with some minor API changes:
+
+  * The method ``run()`` now returns a pointer to this dataset, i.e. one can type ``ds = o.run()``  and subsequently analyse the results with e.g. `TrajAn <https://opendrift.github.io/trajan/>`_. The plotting/analysis methods within OpenDrift works as before, but operates now on ``self.result`` instead of ``self.history``.
+  * The method ``get_lonlats()`` has been removed, as one can now do simply ``self.result.lon`` to get longitude as an Xarray DataArray
+  * The method ``get_property()`` is obsolete for the same reason. It now issues a warning that this method will be removed in the next version. New syntax is to use ``self.result.<property>`` where property is any element properties (lon, lat, status, length etc) or environment variables (wind, currents, ...), or coordinate variables ``time`` and  ``trajectory``
+  * ``self.result.time`` is a numpy64 array, which can be converted to python datetime with ``pandas.to_datetime(self.result.time).to_pydatetime()``
+
+    * ``get_time_array()`` issues a warning that it will soon be removed, in favor of above syntax.
+
+  * Attribute ``self.steps_output`` is replaced by ``len(self.result.time)``
+  * Removed methods ``opendrift.open_xarray`` and ``io_netcdf.import_file_xarrray``, as ``opendrift.open`` now also imports lazily with Xarray.
+
+* Saved netCDF files are now compressed with Zlib level 6, and are typically 70% smaller than before.
+
+  * Data types for all element properties and environment variables are consistently `numpy.float32` internally in OpenDrift, with the benfit of NaN as masked values.
+  * In output netCDF files, element properties are encoded according to the attribute ``data_type`` as specified in the actual ElementType class.
+
+* linewidth can be specified for animations, whenever trajectories are shown
+* Generic netCDF reader and ROMS readers now use a new common method `reader.open_dataset_opendrift` to open Xarray dataset from files or URLS, and also decoding time.
+* Dynamic detection of dimension order in generic reader also for split blocks for global readers. ReaderBlock also shifts x-coordinate for global readers. General improvements for global simulations crossing both dateline and 0-meridian.
+* Reinserted hack to decode time in ROMS-croco files, which are not CF compatible
+* Updated logging mechanism. Can now send log to both file and console.
+* Replaced mambaforge with miniforge3 in circleCI config
+* ``set_up_map`` now stores ``crs_plot`` and ``crs_lonlat`` for later user. Landmask is now obtained on Mercator/plot grid (and not lonlat-grid) when ``fast=True``
+* Faster plotting:
+
+  * Getting land polygons from roaring_landmask if full resolution coastline. Also clipping polygons to plot extent, and caching per extent. This gives large speedup, in particular for animations.
+  * Using RoaringLandmask to check/screen if there is any land within plot area, otherwise skip plotting of vector coastline.
+
+* Removed obsolete method ``wind_drift_factor_from_trajectory_lw``. Could eventually be rebuilt with/around TrajAn.
+* Removed method ``disable_vertical_motion``
+* Removed obsolete method ``ShipDrift.import_ascii_format``
+* ``Leeway.export_ascii`` now limits to 5 decimals for longitudes and latitudes. Still some minor differences are sometimes seen in last decimal, thus there are two versions of output reference file in test suite.
+
+
+2024-11-26 / Release v1.12.0
+-----------------------------
+
+* Adapting OpenOil to Adios > 1.2
+* Replaced Mambaforge with Miniforge in installation instructions
+* `write_netcdf_density_map` now produces files with increasing time dimension also for backward simulations
+* Fixed bug in OceanDrift, terminal velocity not updated if vertical mixing deactivated. Thanks to Joao Lencart e Silva.
+* reader_landmask: use sequential version
+* Added possibility to add Stokes drift to Leeway model
+* Added aliases mapping ocean_vertical_salt_diffusivity (and corresponding for tracer) to ocean_vertical_diffusivity
+* Added some aliases for sea_surface_height
+* Forcing datasets:
+
+  * Replaced obsolete HYCOM thredds url with new ESPCD-v02
+  * Changing Arome arctic 12h to 6_h
+
+* reader_netCDF_CF_generic:
+
+  * if lon/lat arrays are repeated 1D arrays, these are now reduced to 1D, and reader becomes projected with lonlat
+  * Fixed bug with dateline
+  * Update for datasets where projection is available, but coordinate variable is missing
+  * Allowing for ensemble collection with a single member (invisible in coordinates)
+
+* Improved CF-compliance for netCDF output files
+* Cleaning of ROMS native reader
+* Fix for plotting Antarctica coastline, as well as ice sheet-water boorder on maps/plots
+
+2024-07-24 / Release v1.11.13
+-----------------------------
+* Ensuring that Leeway ascii output contains lat/lon without [brackets] regardless of seeding method used
+
+2024-07-05 / Release v1.11.12
+-----------------------------
+* New internal method to avid trying non-applicable readers (e.g. copernicus reader for files/URLs, or netCDF-readers for copernicus products ids)
+
+2024-07-04 / Release v1.11.11
+-----------------------------
+* New feature by TheSylex to move stranded particles closer to the actual coastline with a precision given by config setting `general:coastline_approximation_precision` in unit of degrees (1deg approx 111 km)
+* Major updates to OpenBerg iceberg drift model (Achref Othmani, Lenny Hucher)
+* Changed location to Norway for oil HEIDRUN AARE 2023
+* Replacing matplotlib.cm.get_cmap with matplotlib.colormaps[color], ready for matplotlib 3.9
+* Requiring Trajan >= 0.6.3 for Numpy >= 2.0
+
+2024-06-27 / Release v1.11.10
+-----------------------------
+* Using now standard env variable names COPERNICUSMARINE_SERVICE_USERNAME and COPERNICUSMARINE_SERVICE_PASSWORD for reader_copernicus. Env variable COPERNICUSMARINE_CACHE_DIRECTORY can be set to empty string to disable caching.
+
+2024-06-27 / Release v1.11.9
+----------------------------
+* New feature to blend model field with point measurement (Ugo Martinez)
+* Hack in generic reader to make sure wind from ECMWF files is at 10m height
+
+* Raising now error if all elements are seeded on land
+
+2024-06-26 / Release v1.11.8
+----------------------------
+* Raising now error if all elements are seeded on land
+
+2024-06-25 / Release v1.11.7
+----------------------------
+* Decreased config_level of general:simulation_name to BASIC, due to wrong interpretation of config_level by Drifty
+
+2024-06-24 / Release v1.11.6
+----------------------------
+* Credentials for copernicusmarine client can now be stored in environment variables COPERNICUSMARINE_USER and COPERNICUSMARINE_PASSWORD, as alternative to .netrc file
+* Removed GRIB reader from list included in add_readers_from_list
+* Replaced two obsolete URLS for HYCOM (tds.hycom.org) with new aggregate from ncei.noaa.gov
+* Removed double quote from docstring, as giving problems for Drifty
+* Updated max water content of new oils
+* OpenDriftGUI now logs to file in addition to GUI window
+* config general:simulation_name is now ESSENTIAL, meaning that it will appear on front page of GUI
+
+2024-06-18 / Release v1.11.5
+----------------------------
+* Leeway config categori capsizing (bool) renamed to processes:capsizing
+* adios<1.2 removed from pyproject.toml, as this it not found on conda
+
+2024-06-14 / Release v1.11.4
+----------------------------
+* Updating requirements in pyproject.toml
+* config setting general:simulation_name is now ESSENTIAL, to be on fron page of GUI
+
+2024-06-14 / Release v1.11.3
+----------------------------
+* reader.plot() now takes time as optional argument for plotting background field at specific time
+* Using now product_id instead of OPeNDAP URL for CMEMS datasets, and using copernicusmarineclient through new reader_copernicusmarine. username/password can be stored in netrc-file with machine name equal to *copernicusmarine* or *nrt.cmems-du.eu*
+* Model property reguired_profiles_z_range is now replaced with config setting drift:profile_depth, and profiles are retrieved from surface to this depth. profiles_depth is now input parameter to get_environment, and not anymore a property of Environment class. prepare_run must now always call prepare_run of parent class, since profile_depth is copied to object in basemodel.prepare_run
+* get_variables_along_trajectory now also takes depth (z) as input parameter
+* updates to wetting/drying in ROMS reader (Kristin Thyng)
+* Fill value in output netCDF files is now set to NaN for floats and -999 for integers
+* Moving basereader.prepare() to variables.prepare(), as the former was overriding structured.prepare() due to multiple inheritance, and thus config *drift:max_speed* was not applied if config setting was made after reader was added. Also increasing *drift:max_speed* of OceanDrift from 1 to 2m/s
+* Leeway model now allows capsizing (and un-capsizing for backwards runs), with given probability and reduction of leeway coefficients when wind exceeds given threshold
+* New internal method simulation_direction() is 1 for forward runs, and -1 for backwards runs
+* First version of gaussian merging of model and point measurements (Ugo Martinez)
+* Added utility method open_mfdataset_overlap to create manual threds aggregates, and example_manual_aggregate to illustrate usage
+* Added new config type 'str' with properties min_length and max_length (default 64). Added generic config 'general:simulation_name' (default empty)
+* Changing >= to > in condition regarding at which timestep to export buffer to file
+* Added new oil, HEIDRUN AARE 2023 
+
 2024-04-02 / Release v1.11.2
 ----------------------------
 * Proper handling of sea_surface_height implemented by Kristin Thyng. All subclasses of OceanDrift now have `sea_surface_height` (default 0) as new parameter. z=0 is always sea surface (including sea_surface_height), and seafloor is now where z = -(sea_floor_depth + sea_surface_height)
 * Improvements of ROMS reader by Kristin Thyng:
+
   * Roppy-method `sdepth` (used by ROMS reader) now accounts for `sea_surface_height` (zeta).
   * Improved handling of rotation of vectors.
   * Interpolator can be saved/cached to file to save time on repeated simulations.
   * Improved handling of landmasks, for wetting-drying-applications.
+
 * Added alternative biodegradation to OpenOil by specifying half_tiome [days], which can be different for slick and submerged droplets.
 * Memory usage is now logged once every timestep, and can be plotted after simulation with new method `o.plot_memory_usage()`
 * Exporting directly to parquet file is now an alternative to netCDF (#1259, Achim Randelhoff)
@@ -17,9 +155,11 @@ History
 * Bugfix for attibute of vertical coordinate in SCISM raeder (Calvin Quigley)
 * Can make faster and smaller animation by selcting frames as range or list (Manuel Aghito)
 * Updates to reader_netCDF_CF_generic:
+
   * Now also rotating ensemble vectors from east/north to x/y
   * Now using dynamic instead of hardcoded order of dimensions
   * Removing unnecessary ensemble dimension for seafloor depth
+
 * Now ending timer[total time] before finalizing output netCDF file, so that complete performance is included.
 
 2024-01-25 / Release v1.11.1

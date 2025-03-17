@@ -1,10 +1,10 @@
 import logging
 import numpy as np
 from scipy.ndimage import map_coordinates, grey_dilation
-import logging; logging.captureWarnings(True); logger = logging.getLogger(__name__)
+import logging; logging.captureWarnings(True)
 from scipy.interpolate import interp1d, LinearNDInterpolator
 
-logger = logging.getLogger('opendrift')  # using common logger
+logger = logging.getLogger(__name__)  # using common logger
 
 def expand_numpy_array(data):
     if isinstance(data, np.ma.MaskedArray):
@@ -14,9 +14,10 @@ def expand_numpy_array(data):
         logger.warning('Only NaNs, returning')
         return
     mask = ~np.isfinite(data)
-    data[mask] = np.finfo(np.float64).min
+    minval = np.finfo(data[mask].dtype).min
+    data[mask] = minval
     data[mask] = grey_dilation(data, size=3)[mask]
-    data[data==np.finfo(np.float64).min] = np.nan
+    data[data==minval] = np.nan
 
 
 ###########################
@@ -60,9 +61,6 @@ class NDImage2DInterpolator():
 
 class LinearND2DInterpolator():
 
-
-    logger = logging.getLogger('opendrift')
-
     def __init__(self, xgrid, ygrid, x, y):
         self.block_x, self.block_y = np.meshgrid(xgrid, ygrid)
         self.block_x = self.block_x.ravel()
@@ -105,8 +103,6 @@ class LinearND2DInterpolator():
 
 
 class Linear2DInterpolator():
-
-    logger = logging.getLogger('opendrift')
 
     def __init__(self, xgrid, ygrid, x, y):
         self.x = x

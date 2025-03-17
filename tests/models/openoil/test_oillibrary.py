@@ -23,9 +23,16 @@ from datetime import datetime, timedelta
 
 import xarray as xr
 import numpy as np
+import netCDF4
 
 from opendrift.models.openoil import OpenOil
 
+
+def test_new_oil():
+    o = OpenOil(loglevel=50, location='Norway')
+    oiltypes = o._config['seed:oil_type']['enum']
+    assert 'HEIDRUN AARE 2023' in oiltypes
+    assert len(oiltypes) >= 178
 
 def test_oils():
     o = OpenOil(loglevel=50, weathering_model='noaa')
@@ -54,7 +61,7 @@ def test_oils():
                         time=datetime.now(),
                         oil_type=oiltype)
         o.run(steps=3)
-        initial_mass = o.get_property('mass_oil')[0][0, 0]
+        initial_mass = o.result.mass_oil.isel(time=0, trajectory=0)
         assert o.elements.mass_evaporated.min(
         ) == o.elements.mass_evaporated.max()
         assert o.elements.mass_evaporated.min() > 0
@@ -86,7 +93,7 @@ def test_oilbudget():
                 ])
             o.run(duration=timedelta(hours=4))
             b = o.get_oil_budget()
-            density = o.get_property('density')[0][0, 0]
+            density = o.result.density.isel(time=0, trajectory=0)
             volume = b['mass_total'] / density
             np.testing.assert_almost_equal(volume[-1],
                                            seed_hours * m3_per_hour, 2)
@@ -163,9 +170,9 @@ def test_dispersion():
                 meanlon = 4.816
             elif oil == 'SKRUGARD' and windspeed == 8:
                 fraction_dispersed = 0.139
-                fraction_submerged = 0.418
+                fraction_submerged = 0.471
                 fraction_evaporated = 0.123
-                meanlon = 4.825
+                meanlon = 4.819
             else:
                 fraction_dispersed = -1  # not defined
 
@@ -197,7 +204,7 @@ def test_no_dispersion():
     b = o.get_oil_budget()
     actual_dispersed = b['mass_dispersed'] / b['mass_total']
     np.testing.assert_almost_equal(actual_dispersed[-1], 0)
-    np.testing.assert_array_almost_equal(o.elements.lon[4:7], [4.816, 4.797, 4.803], 3)
+    np.testing.assert_array_almost_equal(o.elements.lon[4:7], [4.804, 4.802, 4.80], 3)
 
 
 def test_biodegradation():
@@ -220,7 +227,7 @@ def test_biodegradation():
                     time=datetime.now(),
                     oil_type='SIRTICA')
     o.run(duration=timedelta(days=1), time_step=1800)
-    initial_mass = o.get_property('mass_oil')[0][0, 0]
+    initial_mass = o.result.mass_oil.isel(time=0, trajectory=0)
     biodegraded30 = o.elements.mass_biodegraded
     factor = 0.120  #(1-e^(-1))
     np.testing.assert_almost_equal(biodegraded30[-1] / initial_mass, factor, 3)
@@ -291,6 +298,28 @@ def test_seed_metadata_output():
     ]:
         assert var in f.attrs
     f.close()
+
+    # Check expected output variables and datatypes
+    output_variables = {
+        np.float64: ['time'],
+        np.int32: ['trajectory', 'status', 'moving', 'origin_marker'],
+        np.float32: ['lon' ,'lat' ,'z' ,'diameter' ,'ocean_vertical_diffusivity' ,'interfacial_area' ,'land_binary_mask' ,'viscosity' ,'density' ,'mass_oil' ,'mass_dispersed' ,'mass_evaporated' ,'fraction_evaporated' ,'water_fraction' ,'wind_drift_factor' ,'x_sea_water_velocity' ,'y_sea_water_velocity' ,'sea_surface_wave_stokes_drift_x_velocity' ,'sea_surface_wave_period_at_variance_spectral_density_maximum' ,'sea_surface_wave_significant_height', 'sea_surface_wave_stokes_drift_y_velocity' ,'sea_floor_depth_below_sea_level' ,'sea_ice_area_fraction' ,'sea_water_temperature' ,'sea_water_salinity' ,'upward_sea_water_velocity', 'bulltime' ,'age_seconds', 'x_wind' ,'y_wind']
+        }
+    d = netCDF4.Dataset(outfile, 'r')
+    for dtype, vars in output_variables.items():
+        for var in vars:
+            assert var in list(d.variables)
+            variable = d.variables[var]
+            assert variable.dtype == dtype
+            # Check that these attributes have same data type as variable
+            for att in ['minval', 'maxval', 'flag_values', 'valid_range', '_FillValue']:
+                if att in variable.ncattrs():
+                    assert variable.getncattr(att).dtype == variable.dtype
+            # Check that coordinate values do not have _FillValue (CF requirement)
+            if var in ['time', 'trajectory']:
+                assert '_FillValue' not in variable.ncattrs()
+    d.close()
+
     os.remove(outfile)
     # Same for cone-seeding
     a = {

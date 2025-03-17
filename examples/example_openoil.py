@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.models.openoil import OpenOil
 
-o = OpenOil(loglevel=20, weathering_model='noaa')
+o = OpenOil(loglevel=20, location='Norway')
 
 print(o.oiltypes)  # Print available oil types
 
@@ -31,9 +31,7 @@ o.set_config('vertical_mixing:timestep',  5)
 #%%
 # Seeding some particles
 time = reader_arome.start_time
-oil_type = 'GULLFAKS, EXXON'
-oil_type = 'ARABIAN MEDIUM, API'
-oil_type = 'ALGERIAN CONDENSATE, STATOIL'
+oil_type = 'HEIDRUN AARE 2023'
 o.seed_elements(lon=4.9, lat=60.1, radius=3000, number=2000,
                 time=time, z=0, oil_type=oil_type)
 

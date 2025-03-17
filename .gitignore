@@ -8,14 +8,11 @@ __pycache__
 build
 
 # Python egg metadata, regenerated from source files by setuptools.
-/*.egg-info
+*.egg-info
 /*.egg
 /*.eggs
 /MyTests/
 /.project
 /.pydevproject
 
-examples/openoil_sample_output.nc
-examples/oil3Dmixing.nc
-
-result_images
+.vscode/*

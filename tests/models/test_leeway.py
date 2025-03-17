@@ -19,7 +19,7 @@
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from . import *
 
 from opendrift.readers import reader_global_landmask
@@ -54,6 +54,7 @@ def test_leewayrun(tmpdir, test_data):
     object_type = 50  # FISHING-VESSEL-1
     reader_landmask = reader_global_landmask.Reader()
     lee.add_reader([reader_landmask])
+    lee.set_config('general:coastline_approximation_precision', None)
     lee.set_config('environment:fallback:x_wind', 0)
     lee.set_config('environment:fallback:y_wind', 10)
     lee.set_config('environment:fallback:x_sea_water_velocity', 0)
@@ -70,10 +71,62 @@ def test_leewayrun(tmpdir, test_data):
     asciif = tmpdir + '/leeway_ascii.txt'
     lee.export_ascii(asciif)
     asciitarget = test_data + "/generated/test_leewayrun_export_ascii.txt"
-    from difflib import Differ
-    with open(asciif) as file_1, open(asciitarget) as file_2:
-        differ = Differ()
-        for line in differ.compare(file_1.readlines(), file_2.readlines()):
-            print(line)
+    asciitarget2 = test_data + "/generated/test_leewayrun_export_ascii_v2.txt"
+    print('Comparing with first version of ASCII file')
     import filecmp
-    assert filecmp.cmp(asciif, asciitarget)
+    if not filecmp.cmp(asciif, asciitarget):
+        from difflib import Differ
+        with open(asciif) as file_1, open(asciitarget) as file_2:
+            differ = Differ()
+            for line in differ.compare(file_1.readlines(), file_2.readlines()):
+                print(line)
+            # Comparing with second version of ASCII file, with slight numerical differences
+            print('Comparing with second version of ASCII file')
+            if not filecmp.cmp(asciif, asciitarget2):
+                with open(asciif) as file_1, open(asciitarget2) as file_2:
+                    differ = Differ()
+                    for line in differ.compare(file_1.readlines(), file_2.readlines()):
+                        print(line)
+                raise ValueError('Leeway ascii output does not match any of the two template files')
+
+def test_capsize():
+    o = Leeway(loglevel=20)
+    o.set_config('environment:constant', {'x_sea_water_velocity': 0, 'y_sea_water_velocity': 0,
+                    'x_wind': 25, 'y_wind': 0, 'land_binary_mask': 0})
+    o.set_config('processes:capsizing', True)
+    o.set_config('capsizing:wind_threshold', 30)
+    o.set_config('capsizing:wind_threshold_sigma', 3)
+    o.set_config('capsizing:leeway_fraction', .4)
+    o.seed_elements(lon=0, lat=60, time=datetime.now(), number=100)
+    o.run(time_step=900, time_step_output=900, duration=timedelta(hours=6))
+    assert o.elements.capsized.max() == 1
+    assert o.elements.capsized.min() == 0
+    assert o.elements.capsized.sum() == 18
+
+    # Backward run, checking that forward capsizing is not happening
+    ob = Leeway(loglevel=20)
+    ob.set_config('processes:capsizing', True)
+    ob.set_config('capsizing:wind_threshold', 30)
+    ob.set_config('capsizing:wind_threshold_sigma', 3)
+    ob.set_config('capsizing:leeway_fraction', .4)
+    ob.set_config('environment:constant', {'x_sea_water_velocity': 0, 'y_sea_water_velocity': 0,
+                    'x_wind': 25, 'y_wind': 0, 'land_binary_mask': 0})
+    ob.seed_elements(lon=0, lat=60, time=datetime.now(), number=100)
+    ob.run(time_step=-900, time_step_output=900, duration=timedelta(hours=6))
+    assert ob.elements.capsized.max() == 0
+    assert ob.elements.capsized.min() == 0
+    assert ob.elements.capsized.sum() == 0
+
+    # Backward run, checking that backward capsizing does happen
+    ob = Leeway(loglevel=20)
+    ob.set_config('processes:capsizing', True)
+    ob.set_config('capsizing:wind_threshold', 30)
+    ob.set_config('capsizing:wind_threshold_sigma', 3)
+    ob.set_config('capsizing:leeway_fraction', .4)
+    ob.set_config('environment:constant', {'x_sea_water_velocity': 0, 'y_sea_water_velocity': 0,
+                    'x_wind': 25, 'y_wind': 0, 'land_binary_mask': 0})
+    ob.seed_elements(lon=0, lat=60, time=datetime.now(), number=100, capsized=1)
+    ob.run(time_step=-900, time_step_output=900, duration=timedelta(hours=6))
+    assert ob.elements.capsized.max() == 1
+    assert ob.elements.capsized.min() == 0
+    assert ob.elements.capsized.sum() == 82

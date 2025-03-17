@@ -23,12 +23,12 @@ import os
 import glob
 
 import numpy as np
+import trajan
 
 from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.readers import reader_ROMS_native
 from opendrift.models.openoil import OpenOil
-from opendrift.models.physics_methods import verticaldiffusivity_Large1994, verticaldiffusivity_Sundby1983, \
-        distance_between_trajectories, distance_along_trajectory, skillscore_darpa, skillscore_liu_weissberg
+from opendrift.models.physics_methods import verticaldiffusivity_Large1994, verticaldiffusivity_Sundby1983
 
 
 class TestPhysics(unittest.TestCase):
@@ -63,8 +63,8 @@ class TestPhysics(unittest.TestCase):
         # Setting droplet size range for wave breaking
         o.seed_elements(4, 60, number=100, time=datetime.now(), z=-100)
         o.run(duration=timedelta(hours=3), time_step=900)
-        d_start = o.history['diameter'][:,0]
-        d_end = o.history['diameter'][:,-1]
+        d_start = o.result.diameter[:,0].values
+        d_end = o.result.diameter[:,-1].values
         # Check initial droplet sizes (expect range 0.0005 to 0.005)
         self.assertTrue(d_start.min() >
                 o.get_config('seed:droplet_diameter_min_subsea'))
@@ -89,8 +89,8 @@ class TestPhysics(unittest.TestCase):
                         diameter=diameter, z=-200)
         o.run(duration=timedelta(hours=2), time_step_output=900, time_step=900)
 
-        d_start = o.history['diameter'][:,0]
-        d_end = o.history['diameter'][:,-1]
+        d_start = o.result.diameter[:,0].values
+        d_end = o.result.diameter[:,-1].values
         # Check droplet sizes before wavebreaking
         self.assertAlmostEqual(d_start.min(), diameter)
         self.assertAlmostEqual(d_start.max(), diameter)
@@ -139,7 +139,7 @@ class TestPhysics(unittest.TestCase):
         #o.plot_vertical_distribution()
         #o.animation_profile()
         # Check minimum depth
-        self.assertAlmostEqual(o.elements.z.min(), -49.56, 1)
+        self.assertAlmostEqual(o.elements.z.min(), -49.65, 1)
         #######################################################
 
     def test_vertical_mixing_plantoil_windonly(self):
@@ -157,7 +157,7 @@ class TestPhysics(unittest.TestCase):
 
         o.run(duration=timedelta(hours=2), time_step_output=900, time_step=900)
         #o.plot_vertical_distribution()
-        self.assertAlmostEqual(o.elements.z.min(), -48.88, 1)
+        self.assertAlmostEqual(o.elements.z.min(), -48.61, 1)
         #######################################################
 
 
@@ -178,7 +178,7 @@ class TestPhysics(unittest.TestCase):
         o.run(duration=timedelta(hours=2),
               time_step_output=1800, time_step=1800)
         #o.plot_vertical_distribution()
-        self.assertAlmostEqual(o.elements.z.min(), -49.0, 1)
+        self.assertAlmostEqual(o.elements.z.min(), -49.2, 1)
         ########################################################
 
     def test_verticalmixing_schemes(self):
@@ -200,11 +200,11 @@ class TestPhysics(unittest.TestCase):
             o.run(duration=timedelta(hours=2), time_step=900)
 
             if scheme == 'environment':  # presently this is fallback
-                self.assertAlmostEqual(o.elements.z.min(), -49.6, 1)
+                self.assertAlmostEqual(o.elements.z.min(), -48.9, 1)
             elif scheme == 'windspeed_Large1994':
-                self.assertAlmostEqual(o.elements.z.min(), -49.6, 1)
+                self.assertAlmostEqual(o.elements.z.min(), -48.9, 1)
             elif scheme == 'windspeed_Sundby1983':
-                self.assertAlmostEqual(o.elements.z.min(), -51.45, 1)
+                self.assertAlmostEqual(o.elements.z.min(), -51.75, 1)
             elif scheme == 'constant':
                 self.assertAlmostEqual(o.elements.z.min(), -3.57, 1)
 
@@ -232,28 +232,7 @@ class TestPhysics(unittest.TestCase):
         o2.run(steps=2)
         # Check that stokes drift moves elements downwind
         self.assertTrue(o2.elements.lon > o.elements.lon)
-
-    def test_skillscores(self):
-        lon_obs = np.array([0, 1, 2, 3, 4, 5])
-        lat_obs = np.array([0, 0, 0, 0, 0, 0])
-        lon_model = lon_obs
-        km2deg = 111
-        lon_model[-1] = lon_obs[-1] + 1.8/km2deg
-        lat_model = [0, 1.2/km2deg, -3.4/km2deg, 6.3/km2deg, 4.2/km2deg, 0]
-        # Test distance between trajectories
-        db = distance_between_trajectories(lon_obs, lat_obs, lon_model, lat_model)
-        self.assertIsNone(np.testing.assert_array_almost_equal(
-            db, np.array([0, 1195.4, 3387.0, 6275.8, 4183.9, 0]), 1))
-        # Test distance along trajectory
-        da = distance_along_trajectory(lon_obs, lat_obs)
-        self.assertIsNone(np.testing.assert_array_almost_equal(
-            da, np.array([111319.5, 111319.5, 111319.5, 111319.5, 111319.5]), 1))
-        # Test DARPA skillscore
-        skill_darpa = skillscore_darpa(lon_obs, lat_obs, lon_model, lat_model)
-        self.assertEqual(skill_darpa, 145)
-        # Test Liu-Weissberg skillscore
-        skill_lw = skillscore_liu_weissberg(lon_obs, lat_obs, lon_model, lat_model)
-        self.assertAlmostEqual(skill_lw, 0.99099, 5)
-
+        
+        
 if __name__ == '__main__':
     unittest.main()

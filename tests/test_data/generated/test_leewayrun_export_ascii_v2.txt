@@ -112,7 +112,7 @@ timePassed  nStep   nowSeeded   nSeeded
   120	3	16	50
 # Mean position:
 meanLon meanLat
-4.54850	60.08471
+4.54850	60.08470
 # Particle data:
 id  lon lat state   age orientation
 1	4.44332	60.12865	11	120	0
@@ -253,7 +253,7 @@ timePassed  nStep   nowSeeded   nSeeded
   240	5	16	83
 # Mean position:
 meanLon meanLat
-4.58259	60.07596
+4.58259	60.07598
 # Particle data:
 id  lon lat state   age orientation
 1	4.42038	60.15828	11	240	1
@@ -348,7 +348,7 @@ timePassed  nStep   nowSeeded   nSeeded
   300	6	17	100
 # Mean position:
 meanLon meanLat
-4.59991	60.07110
+4.59991	60.07108
 # Particle data:
 id  lon lat state   age orientation
 1	4.42680	60.17310	11	300	1
@@ -572,7 +572,7 @@ timePassed  nStep   nowSeeded   nSeeded
   420	8	0	100
 # Mean position:
 meanLon meanLat
-4.59998	60.08753
+4.59998	60.08752
 # Particle data:
 id  lon lat state   age orientation
 1	4.43965	60.20275	11	420	1
@@ -1020,7 +1020,7 @@ timePassed  nStep   nowSeeded   nSeeded
   660	12	0	100
 # Mean position:
 meanLon meanLat
-4.60012	60.12037
+4.60012	60.12038
 # Particle data:
 id  lon lat state   age orientation
 1	4.46538	60.26203	11	660	1
@@ -1244,7 +1244,7 @@ timePassed  nStep   nowSeeded   nSeeded
   780	14	0	100
 # Mean position:
 meanLon meanLat
-4.59877	60.13680
+4.59876	60.13681
 # Particle data:
 id  lon lat state   age orientation
 1	4.47826	60.29167	11	780	1
@@ -1356,7 +1356,7 @@ timePassed  nStep   nowSeeded   nSeeded
   840	15	0	100
 # Mean position:
 meanLon meanLat
-4.59719	60.14500
+4.59719	60.14502
 # Particle data:
 id  lon lat state   age orientation
 1	4.48471	60.30649	11	840	1
@@ -1692,7 +1692,7 @@ timePassed  nStep   nowSeeded   nSeeded
   1020	18	0	100
 # Mean position:
 meanLon meanLat
-4.59212	60.16963
+4.59212	60.16962
 # Particle data:
 id  lon lat state   age orientation
 1	4.50406	60.35095	11	1020	1
@@ -2028,7 +2028,7 @@ timePassed  nStep   nowSeeded   nSeeded
   1200	21	0	100
 # Mean position:
 meanLon meanLat
-4.56657	60.19125
+4.56657	60.19124
 # Particle data:
 id  lon lat state   age orientation
 1	4.52344	60.39541	11	1200	1
@@ -2140,7 +2140,7 @@ timePassed  nStep   nowSeeded   nSeeded
   1260	22	0	100
 # Mean position:
 meanLon meanLat
-4.55579	60.19860
+4.55579	60.19859
 # Particle data:
 id  lon lat state   age orientation
 1	4.52991	60.41023	11	1260	1
@@ -2252,7 +2252,7 @@ timePassed  nStep   nowSeeded   nSeeded
   1320	23	0	100
 # Mean position:
 meanLon meanLat
-4.54165	60.20850
+4.54165	60.20849
 # Particle data:
 id  lon lat state   age orientation
 1	4.53638	60.42505	11	1320	1
@@ -2364,7 +2364,7 @@ timePassed  nStep   nowSeeded   nSeeded
   1380	24	0	100
 # Mean position:
 meanLon meanLat
-4.53374	60.21539
+4.53374	60.21538
 # Particle data:
 id  lon lat state   age orientation
 1	4.54285	60.43987	11	1380	1

@@ -73,6 +73,13 @@ class LeewayObj(LagrangianArray):
             'Probability per hour that an object may change orientation (jibing)',
             'default': 0.04
         }),
+         ('capsized', {
+            'dtype': np.uint8,
+            'units': '1',
+            'description': '0 is not capsized, changed to 1 after capsizing (irreversible). After capsizing, leeway coeffieiencts are reduced as given by config item capsized:leeway_fraction',
+            'seed': True,
+            'default': 0
+        }),
         ('downwind_slope', {
             'dtype': np.float32,
             'units': '%',
@@ -147,6 +154,15 @@ class Leeway(OpenDriftSimulation):
         'y_sea_water_velocity': {
             'fallback': None
         },
+        'sea_surface_wave_stokes_drift_x_velocity': {
+            'fallback': 0,
+            'important': False
+        },
+        'sea_surface_wave_stokes_drift_y_velocity': {
+            'fallback': 0,
+            'important': False
+        },
+
         'land_binary_mask': {
             'fallback': None
         },
@@ -224,6 +240,47 @@ class Leeway(OpenDriftSimulation):
                 'units': 'probability',
                 'level': CONFIG_LEVEL_BASIC
             },
+            'processes:capsizing': {
+                'type': 'bool',
+                'default': False,
+                'description':
+                'If True, elements can be capsized when wind exceeds threshold given by config item capsize:wind_threshold',
+                'level': CONFIG_LEVEL_BASIC
+            },
+             'capsizing:leeway_fraction': {
+                'type': 'float',
+                'default': 0.4,
+                'min': 0,
+                'max': 1,
+                'description':
+                'After capsizing, leeway coefficients are reduced by multiplying by this factor',
+                'units': 'fraction',
+                'level': CONFIG_LEVEL_BASIC
+            },
+              'capsizing:wind_threshold': {
+                'type': 'float',
+                'default': 30,
+                'min': 0,
+                'max': 50,
+                'description':
+                'Probability of capsizing per hour is: 0.5 + 0.5tanh((windspeed-wind_threshold)/wind_threshold_sigma)',
+                'units': 'm/s',
+                'level': CONFIG_LEVEL_BASIC
+            },
+               'capsizing:wind_threshold_sigma': {
+                'type': 'float',
+                'default': 5,
+                'min': 0,
+                'max': 20,
+                'description':
+                'Sigma parameter in parameterization of capsize probability',
+                'units': 'm/s',
+                'level': CONFIG_LEVEL_BASIC
+            },
+                'drift:stokes_drift': {'type': 'bool', 'default': False,
+                    'description': 'Advection elements with surface Stokes drift (wave orbital motion). Note that this is originally considered to be implicit in Leeway coefficients.',
+                    'level': CONFIG_LEVEL_ADVANCED},
+
         })
 
         self._set_config_default('general:time_step_minutes', 10)
@@ -285,7 +342,7 @@ class Leeway(OpenDriftSimulation):
             epsdw[i] = rdw[i] * dwstd
             # Avoid negative downwind slopes
             while downwind_slope[i] + epsdw[i] / 20.0 < 0.0:
-                rdw[i] = np.random.randn(1)
+                rdw[i] = np.random.randn(1)[0]
                 epsdw[i] = rdw[i] * dwstd
         downwind_eps = epsdw
         # NB
@@ -353,6 +410,21 @@ class Leeway(OpenDriftSimulation):
                     continue
             print('%i %s %s' % (i + 1, objkey, description))
 
+    def plot_capsize_probability(self):
+        U = np.linspace(0, 35, 100)
+        wind_threshold = self.get_config('capsizing:wind_threshold')
+        sigma = self.get_config('capsizing:wind_threshold_sigma')
+        p = self.capsize_probability(U, wind_threshold, sigma)
+        import matplotlib.pyplot as plt
+        plt.plot(U, p)
+        plt.title(f'p(u) = 0.5 + 0.5*tanh((u - {wind_threshold} / {sigma})')
+        plt.xlabel('Wind speed  [m/s]')
+        plt.ylabel('Probability of capsizing per hour')
+        plt.show()
+
+    def capsize_probability(self, wind, threshold, sigma):
+        return .5 + .5*np.tanh((wind-threshold)/sigma)
+
     def update(self):
         """Update positions and properties of leeway particles."""
 
@@ -360,6 +432,24 @@ class Leeway(OpenDriftSimulation):
                             self.environment.y_wind**2)
         # CCC update wind direction
         winddir = np.arctan2(self.environment.x_wind, self.environment.y_wind)
+
+        # Capsizing
+        if self.get_config('processes:capsizing') is True:
+            wind_threshold = self.get_config('capsizing:wind_threshold')
+            wind_threshold_sigma = self.get_config('capsizing:wind_threshold_sigma')
+            # For forward run, elements can be capsized, but for backwards run, only capsized elements can be un-capsized
+            if self.simulation_direction() == 1:  # forward run
+                can_be_capsized = np.where(self.elements.capsized==0)[0]
+            else:
+                can_be_capsized = np.where(self.elements.capsized==1)[0]
+            if len(can_be_capsized) > 0:
+                probability = self.capsize_probability(windspeed[can_be_capsized],
+                        wind_threshold, wind_threshold_sigma)*np.abs(self.time_step.total_seconds())/3600
+                # NB: assuming small timestep
+                to_be_capsized = np.where(np.random.rand(len(can_be_capsized)) < probability)[0]
+                to_be_capsized = can_be_capsized[to_be_capsized]
+                logger.warning(f'Capsizing {len(to_be_capsized)} of {len(can_be_capsized)} elements')
+                self.elements.capsized[to_be_capsized] = 1 - self.elements.capsized[to_be_capsized]
 
         # Move particles with the leeway CCC TODO
         downwind_leeway = (
@@ -374,6 +464,9 @@ class Leeway(OpenDriftSimulation):
         costh = np.cos(winddir)
         y_leeway = downwind_leeway * costh + crosswind_leeway * sinth
         x_leeway = -downwind_leeway * sinth + crosswind_leeway * costh
+        capsize_fraction = self.get_config('capsizing:leeway_fraction')  # Reducing leeway for capsized elements
+        x_leeway[self.elements.capsized==1] *= capsize_fraction
+        y_leeway[self.elements.capsized==1] *= capsize_fraction
         self.update_positions(-x_leeway, y_leeway)
 
         # Move particles with ambient current
@@ -392,6 +485,12 @@ class Leeway(OpenDriftSimulation):
         logger.debug('Jibing %i out of %i elements.' %
                      (np.sum(jib), self.num_elements_active()))
 
+        # Move elements with Stokes drift, if activated.
+        # Note: Stokesdrift is originally considered to be implicit in Leeway coefficients,
+        # however, this study by Sutherland (2024) indicates it should be added explicitly:
+        # https://link.springer.com/article/10.1007/s10236-024-01600-3
+        self.stokes_drift()
+
     def export_ascii(self, filename):
         '''Export output to ASCII format of original version'''
 
@@ -402,6 +501,8 @@ class Leeway(OpenDriftSimulation):
 
         for inp in ['lon', 'lat', 'radius', 'time']:
             if len(np.atleast_1d(self.ascii[inp])) == 1:
+                if isinstance(self.ascii[inp], np.ndarray):
+                    self.ascii[inp] = self.ascii[inp].item()
                 self.ascii[inp] = [self.ascii[inp], self.ascii[inp]]
         f.write('# Drift simulation initiated [UTC]:\n')
         f.write('simDate simTime\n')
@@ -440,7 +541,7 @@ class Leeway(OpenDriftSimulation):
         f.write('# Length of model simulation [min] & [timesteps]:\n'
                 'simLength  simSteps\n')
         f.write('%i\t%i\n' % ((self.time - self.start_time).total_seconds() /
-                              60., self.steps_output))
+                              60., self.result.sizes['time']))
 
         f.write('# Total no of seeded particles:\n'
                 'seedTotal\n'
@@ -450,28 +551,26 @@ class Leeway(OpenDriftSimulation):
                 ' %i\n' % (self.num_elements_activated() / seedSteps))
 
         index_of_first, index_of_last = \
-            self.index_of_activation_and_deactivation()
+            self.index_of_first_and_last()
 
         beforeseeded = 0
-        lons, statuss = self.get_property('lon')
-        lats, statuss = self.get_property('lat')
-        orientations, statuss = self.get_property('orientation')
-        for step in range(self.steps_output):
-            lon = lons[step, :]
-            lat = lats[step, :]
-            orientation = orientations[step, :]
-            status = statuss[step, :]
-            if sum(status ==
-                   0) == 0:  # All elements deactivated: using last position
-                lon = lons[step - 1, :]
-                lat = lats[step - 1, :]
-                orientation = orientations[step - 1, :]
-                status = statuss[step - 1, :]
-            num_active = np.sum(~status.mask)
-            status[status.mask] = 41  # seeded on land
-            lon[status.mask] = 0
-            lat[status.mask] = 0
-            orientation[status.mask] = 0
+
+        statuss = self.result.status.ffill(dim='time')
+        lons = self.result.lon.ffill(dim='time')
+        lats = self.result.lat.ffill(dim='time')
+        orientations = self.result.orientation.ffill(dim='time')
+
+        for step in range(self.result.sizes['time']):
+            status = statuss.isel(time=step)
+            index = step
+            if sum(status==0) == 0:  # All elements deactivated: using last position
+                index = step - 1
+                status = statuss.isel(time=index)
+            lon = lons.isel(time=index)
+            lat = lats.isel(time=index)
+            orientation = orientations.isel(time=index)
+            num_active = np.sum(status.notnull()).values
+            status[status.isnull()] = 41  # Seeded on land
             status[status == 0] = 11  # active
             status[status == 1] = 41  # stranded
             f.write('\n# Date [UTC]:\nnowDate   nowTime\n')
@@ -486,26 +585,26 @@ class Leeway(OpenDriftSimulation):
                      step + 1, num_active - beforeseeded, num_active))
             beforeseeded = num_active
             f.write('# Mean position:\nmeanLon meanLat\n')
-            f.write('%f\t%f\n' %
-                    (np.mean(lon[status == 11]), np.mean(lat[status == 11])))
+            f.write('%.5f\t%.5f\n' %
+                    (lon.where(status==11).mean(), lat.where(status==11).mean()))
             f.write('# Particle data:\n')
             f.write('id  lon lat state   age orientation\n')
             age_minutes = self.time_step_output.total_seconds() * (
                 step - index_of_first) / 60
             age_minutes[age_minutes < 0] = 0
+            age_minutes = age_minutes.values
             for i in range(num_active):
-                f.write('%i\t%.6f\t%.6f\t%i\t%i\t%i\n' %
-                        (i + 1, lon[i], lat[i], status[i], age_minutes[i],
-                         orientation[i]))
+                f.write('%i\t%.5f\t%.5f\t%.0f\t%.0f\t%.0f\n' %
+                        (i + 1, lon[i], lat[i], status[i], age_minutes[i], orientation[i]))
 
         f.close()
 
     def _substance_name(self):
         # TODO: find a better algorithm to return name of object category
-        if self.history is not None:
-            object_type = self.history['object_type'][0, 0]
+        if self.result is not None:
+            object_type = self.result.object_type[0, 0].item()
             if not np.isfinite(object_type):  # For backward simulations
-                object_type = self.history['object_type'][-1, 0]
+                object_type = self.result.object_type[-1, 0].item()
         else:
             object_type = np.atleast_1d(self.elements_scheduled.object_type)[0]
         if np.isfinite(object_type):
