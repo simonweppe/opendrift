@@ -45,6 +45,7 @@ import xarray as xr
 import oceantide
 
 
+# variable name mapping in datamesh constituent grid
 standard_name_mapping_datamesh = {
     'u': 'x_sea_water_velocity', 
     'v': 'y_sea_water_velocity',
@@ -106,12 +107,15 @@ class Reader(reader_netCDF_CF_generic.Reader):
     def __init__(self, filename=None, zarr_storage_options=None, name=None, proj4=None,
                  standard_name_mapping=standard_name_mapping_datamesh, ensemble_member=None,**kwargs):
         
-        # variable name mapping in datamesh constituent grid
-
+        # open xarray dataset
+        ds_input = xr.open_dataset(filename) 
+        # check tidal constituent format, convert to complex amplitudes if necessary
+        ds_input = self.check_tidal_amp_format_input(ds_input)
+        # note we do this before calling Super so that the mapping works correctly
 
         # Run constructor of parent Reader class
         # specify correct variable name mapping
-        super(Reader,self).__init__(filename=filename, 
+        super(Reader,self).__init__(filename=ds_input,#filename,  # pass the xarray dataset rather than filename - to ensure mapping works
                                     zarr_storage_options=None, 
                                     name=None, 
                                     proj4=None, 
@@ -131,9 +135,10 @@ class Reader(reader_netCDF_CF_generic.Reader):
                 logger.debug('Using log profile for current extrapolation in water column, with roughness height %s' % self.z0)
         else:
             self.use_log_profile = False
-
-        # check tidal amp/pha format and convert to complex numbers if necessary
-        self.check_tidal_amp_format()
+        
+        # > done earlier
+        # # check tidal amp/pha format and convert to complex numbers if necessary
+        # self.check_tidal_amp_format()
 
         # use dummy start/end times instead, to make it always valid time-wise (needed for some check in get_environment() )
         self.start_time = datetime(1000,1,1) 
@@ -143,6 +148,22 @@ class Reader(reader_netCDF_CF_generic.Reader):
         # https://github.com/OpenDrift/opendrift/blob/master/opendrift/readers/basereader/variables.py#L443
         self.activate_environment_mapping('land_binary_mask_from_ocean_depth')
 
+
+    def check_tidal_amp_format_input(self,ds):
+        # check in which format the tidal consistuents' amplitudes and phases are stored.
+        # convert to complex amplitude if necessary
+        if 'h_im' in ds :
+            # we need to convert into complex amplitudes
+            #  as in oceantide :
+            # https://github.com/oceanum/oceantide/blob/master/oceantide/input/oceantide.py
+            for v in ["h", "u", "v"]:
+                ds[v] = ds[f"{v}_re"] + 1j * ds[f"{v}_im"] # > make sure to use +j here.
+            ds["con"] = ds["con"].astype("U4") # need to convert so that oceantide works
+        elif 'e_pha' in ds:
+            print('check tide cons file format - not tested yet')
+            import pdb;pdb.set_trace()
+        return ds
+
     def check_tidal_amp_format(self):
         # check in which format the tidal consistuents' amplitude and phases are stored
         if 'h_im' in self.Dataset.variables :
@@ -150,7 +171,7 @@ class Reader(reader_netCDF_CF_generic.Reader):
             #  as in oceantide :
             # https://github.com/oceanum/oceantide/blob/master/oceantide/input/oceantide.py
             for v in ["h", "u", "v"]:
-                self.Dataset[v] = self.dataset[f"{v}_re"] + 1j * self.dataset[f"{v}_im"] # > make sure to use +j here.
+                self.Dataset[v] = self.Dataset[f"{v}_re"] + 1j * self.Dataset[f"{v}_im"] # > make sure to use +j here.
         elif 'e_pha' in self.Dataset.variables:
             print('check tide cons file format - not tested yet')
             import pdb;pdb.set_trace()
@@ -246,11 +267,10 @@ class Reader(reader_netCDF_CF_generic.Reader):
         lon_id = xr.DataArray(reader_x, dims='z')
         lat_id = xr.DataArray(reader_y, dims='z') 
         
-
         ####################################################################################3
         if 'x_sea_water_velocity' in variables:
             # compute tidal signals 
-            tide_pred = self.Dataset.interp(lon=lon_id, lat=lat_id).tide.predict(times=time)
+            tide_pred = self.Dataset.interp(lon=lon_id, lat=lat_id).tide.predict(times=time).load()
         
         env = {}
         # the <env> variable to return is a dict such as
