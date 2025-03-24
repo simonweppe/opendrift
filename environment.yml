@@ -34,7 +34,7 @@ dependencies:
   - copernicusmarine>=2.0
   - bottleneck
   - pip
-  - oceantide
-  - futures
+  # - oceantide - seems to break the install
+  # - futures
   - pip:
     - git+http://github.com/OpenDrift/trajan.git
