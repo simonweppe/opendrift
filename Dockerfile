@@ -22,5 +22,8 @@ RUN /bin/bash -c "echo -e \"import cartopy\nfor s in ('c', 'l', 'i', 'h', 'f'): 
 ADD . .
 RUN pip install -e .
 
+# install trajan here - having it in environment.yml made it fail
+RUN pip install trajan
+
 # Test installation
 RUN /bin/bash -c "echo -e \"import opendrift\" | python"
