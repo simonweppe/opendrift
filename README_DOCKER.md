@@ -5,7 +5,7 @@ See https://opendrift.github.io/install.html
 ```
 git clone https://github.com/OpenDrift/opendrift.git # this will get the latest
 cd opendrift/ # where Dockerfile lives
-docker build -t simon_wp/opendrift:latest .
+docker build -t simonwp/opendrift:latest .
 ```
 
 ## or a specific tag
@@ -13,19 +13,19 @@ docker build -t simon_wp/opendrift:latest .
 ```
 git clone --branch v.gb.0.0 --single-branch --depth=1 https://github.com/simonweppe/opendrift.git &&\
 cd opendrift/
-docker build -t simon_wp/opendrift:v.gb.0.0 .
+docker build -t simonwp/opendrift:v.gb.0.0 .
 ```
 
 ## then push to dockerhub
 
 ```
 #retag if necessary
-docker tag opendrift:latest simon_wp/opendrift:v.gb.0.0
+docker tag opendrift:latest simonwp/opendrift:v.gb.0.0
 ```
 
 ```
 docker login simon_wp
-docker push simon_wp/opendrift:v.gb.0.0
+docker push simonwp/opendrift:v.gb.0.0
 ```
 
 Docker becomes available here : 
