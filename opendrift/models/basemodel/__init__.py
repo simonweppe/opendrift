@@ -4990,9 +4990,10 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 o = self.clone() # full reset of opendrift object
                 o.seed_elements(lons.ravel(), lats.ravel(), time=t, z=z)
                 o.run(duration=duration, time_step=time_step)
-                f_x1, f_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
-                                  o.history['lat'].T[-1].reshape(X.shape))
-
+                # f_x1, f_y1 = proj(o.history['lon'].T[-1].reshape(X.shape),
+                #                   o.history['lat'].T[-1].reshape(X.shape))
+                f_x1, f_y1 = proj(o.result['lon'].data.T[-1].reshape(X.shape),
+                                  o.result['lat'].data.T[-1].reshape(X.shape))
                 lcs['R_C11'][i, :, :], \
                 lcs['R_C12'][i, :, :], \
                 lcs['R_C22'][i, :, :], \
@@ -5011,8 +5012,11 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 # when run in backwards mode, opendrift inverts the order of lon/lat items in the array
                 # so we flip the array  to be consistent with initial positions, and compute correct displacements
                 # See similar comment : https://github.com/MireyaMMO/cLCS/blob/main/cLCS/mean_C.py#L335
-                b_x1, b_y1 = proj(o.history['lon'].T[-1][::-1].reshape(X.shape),
-                                  o.history['lat'].T[-1][::-1].reshape(X.shape))                
+
+                # b_x1, b_y1 = proj(o.history['lon'].T[-1][::-1].reshape(X.shape),
+                #                   o.history['lat'].T[-1][::-1].reshape(X.shape))                
+                b_x1, b_y1 = proj(o.result['lon'].data.T[-1][::-1].reshape(X.shape),
+                                  o.result['lat'].data.T[-1][::-1].reshape(X.shape))  
 
                 lcs['A_C11'][i, :, :], \
                 lcs['A_C12'][i, :, :], \
