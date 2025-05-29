@@ -5235,7 +5235,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 # now compute arc_length along each individual particles
                 total_length, distances, speeds = o.get_trajectory_lengths()
                 M = total_length.reshape(X.shape)
-                M.mask=[M==0] # mask the array with land
+                # M.mask=[M==0] # mask the array with land
                 LD['M'][i, :, :] = M 
                 
             # mask arrays      
