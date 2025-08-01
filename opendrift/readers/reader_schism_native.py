@@ -111,7 +111,7 @@ class Reader(BaseReader,UnstructuredReader):
             'zcor' : 'vertical_levels', # time-varying vertical coordinates
             'sigma': 'ocean_s_coordinate',
             'vertical_velocity' : 'upward_sea_water_velocity',
-            'wetdry_elem': 'land_binary_mask',
+            # 'wetdry_elem': 'land_binary_mask',
             'wind_speed' : 'x_wind',
             'wind_speed' : 'y_wind' , }
             # 'diffusivity' : 'ocean_vertical_diffusivity'}
@@ -181,7 +181,7 @@ class Reader(BaseReader,UnstructuredReader):
             logger.info('Opening dataset: ' + filestr)
             if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
                 logger.info('Opening files with open_mfdataset')
-                self.dataset = xr.open_mfdataset(filename,chunks={'time': 1}).drop_duplicates(dim = 'time', keep='last')
+                self.dataset = xr.open_mfdataset(filename,chunks={'time': 1}).drop_duplicates(dim = 'time', keep='last') #
                 # Note the <.drop_duplicates(dim = 'time', keep='last')> is particulary important
                 # when running with daily averaged data.
                 # If data was downloaded in daily files, each daily-averaged file will have 2 timesteps [t0, t0+1day]; 

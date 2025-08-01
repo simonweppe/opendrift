@@ -407,7 +407,7 @@ class Reader(BaseReader,UnstructuredReader):
 
         # if tidal velocities are requested, we generate the flow field for that time
         if 'x_sea_water_velocity' in requested_variables:
-            tide_pred = self.dataset.tide.predict(times=time)
+            tide_pred = self.dataset.tide.predict(times=time).squeeze() # we squeeze to get rid of dimension time
 
         for par in requested_variables:
             var = self.dataset.variables[self.variable_mapping[par]]
@@ -1116,7 +1116,10 @@ class ReaderBlockUnstruct():
                         ax.scatter(x[0:1],y[0:1],z[0:1],c='g', marker='o')
                         plt.ion()
                         plt.show()
-                    ##############################3
+                    ##############################
+                else:
+                    print('check data')
+                    import pdb;pdb.set_trace()
 
                 dist[dist<DMIN]=DMIN
                 fac=(1./dist)
