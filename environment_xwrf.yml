@@ -1,0 +1,40 @@
+name: opendrift_simon_wrf
+channels:
+  - conda-forge
+dependencies:
+  - matplotlib>=3.5
+  - numpy<2.0
+  - scipy>=1.6
+  - netcdf4<=1.6.1
+  - ffmpeg
+  - pyproj>=2.3
+  - libgdal>=3.1
+  - gdal>=3.1
+  - xarray
+  - dask
+  - cfgrib
+  - cf_xarray
+  - pygrib
+  - xhistogram
+  - requests
+  - pytest<8
+  - pytest-cov
+  - pytest-benchmark
+  - pytest-mpl
+  - cartopy>=0.20
+  - nc-time-axis
+  - geojson
+  - pynucos>=2.12
+  - isodate
+  - coloredlogs
+  - cmocean
+  - utm
+  - roaring-landmask>=0.7
+  - adios_db>=1.2
+  - copernicusmarine>=2.0
+  - bottleneck
+  - pip
+  # - pip:
+  #   - git+http://github.com/OpenDrift/trajan.git
+  # # - oceantide - seems to break the install
+  # # - futures

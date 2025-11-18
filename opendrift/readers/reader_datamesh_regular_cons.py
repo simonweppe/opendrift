@@ -153,6 +153,7 @@ class Reader(reader_netCDF_CF_generic.Reader):
         # check in which format the tidal consistuents' amplitudes and phases are stored.
         # convert to complex amplitude if necessary
         if 'h_im' in ds :
+            logger.debug('Converting variables *_re,*_im to complex amplitudes')
             # we need to convert into complex amplitudes
             #  as in oceantide :
             # https://github.com/oceanum/oceantide/blob/master/oceantide/input/oceantide.py
@@ -160,21 +161,21 @@ class Reader(reader_netCDF_CF_generic.Reader):
                 ds[v] = ds[f"{v}_re"] + 1j * ds[f"{v}_im"] # > make sure to use +j here.
             ds["con"] = ds["con"].astype("U4") # need to convert so that oceantide works
         elif 'e_pha' in ds:
-            print('check tide cons file format - not tested yet')
+            logger.debug('check tide cons file format - not tested yet')
             import pdb;pdb.set_trace()
         return ds
 
-    def check_tidal_amp_format(self):
-        # check in which format the tidal consistuents' amplitude and phases are stored
-        if 'h_im' in self.Dataset.variables :
-            # we need to convert into complex amplitudes
-            #  as in oceantide :
-            # https://github.com/oceanum/oceantide/blob/master/oceantide/input/oceantide.py
-            for v in ["h", "u", "v"]:
-                self.Dataset[v] = self.Dataset[f"{v}_re"] + 1j * self.Dataset[f"{v}_im"] # > make sure to use +j here.
-        elif 'e_pha' in self.Dataset.variables:
-            print('check tide cons file format - not tested yet')
-            import pdb;pdb.set_trace()
+    # def check_tidal_amp_format(self):
+    #     # check in which format the tidal consistuents' amplitude and phases are stored
+    #     if 'h_im' in self.Dataset.variables :
+    #         # we need to convert into complex amplitudes
+    #         #  as in oceantide :
+    #         # https://github.com/oceanum/oceantide/blob/master/oceantide/input/oceantide.py
+    #         for v in ["h", "u", "v"]:
+    #             self.Dataset[v] = self.Dataset[f"{v}_re"] + 1j * self.Dataset[f"{v}_im"] # > make sure to use +j here.
+    #     elif 'e_pha' in self.Dataset.variables:
+    #         print('check tide cons file format - not tested yet')
+    #         import pdb;pdb.set_trace()
 
     def nearest_time(self, time):
         """ overloads version from variables.py
@@ -268,7 +269,7 @@ class Reader(reader_netCDF_CF_generic.Reader):
         lat_id = xr.DataArray(reader_y, dims='z') 
         
         ####################################################################################3
-        if 'x_sea_water_velocity' in variables:
+        if np.logical_or('x_sea_water_velocity' in variables,'sea_surface_height' in variables):
             # compute tidal signals 
             tide_pred = self.Dataset.interp(lon=lon_id, lat=lat_id).tide.predict(times=time).load()
         
@@ -318,7 +319,7 @@ class Reader(reader_netCDF_CF_generic.Reader):
         #         # should not happen for now
         #         import pdb;pdb.set_trace()
         # ####################################################################################
-
+        
         # not supporting profiles for now - set to None
         env_profiles = None
 
