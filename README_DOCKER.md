@@ -29,6 +29,7 @@ docker push simonwp/opendrift:v.gb.0.0
 ```
 
 Docker becomes available here : 
+https://hub.docker.com/repository/docker/simonwp/opendrift/general
 
 
 docker build -f Dockerfile -t opendrift:v.gb.0.0 . 
