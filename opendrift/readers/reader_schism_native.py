@@ -172,7 +172,7 @@ class Reader(BaseReader,UnstructuredReader):
             #   WWM_25 =  0 !Uresell number based on peak period
             #   WWM_26 =  0 !Friction velocity (m/s?)
             #   WWM_27  = 0 !Charnock coefficient
-            #   WWM_28  = 0 !Rougness length
+            #   WWM_28  = 0 !Roughness length
 
         self.return_block = True
 
