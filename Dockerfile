@@ -1,7 +1,8 @@
 # See https://opendrift.github.io for usage
 
 # Use a minimal base image
-FROM mambaorg/micromamba:1.4.2
+#FROM mambaorg/micromamba:1.4.2
+FROM mambaorg/micromamba:2.1.1 # updated as per official 
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV MAMBA_DOCKERFILE_ACTIVATE=1
@@ -18,11 +19,11 @@ RUN micromamba install -n base -f environment.yml
 # Cache cartopy maps
 RUN /bin/bash -c "echo -e \"import cartopy\nfor s in ('c', 'l', 'i', 'h', 'f'): cartopy.io.shapereader.gshhs(s)\" | python"
 
-# Install opendrift
+# Install opendrift - copied recent project.toml for it to work
 ADD . .
-RUN pip install -e .
+RUN pip install -e . 
 
-# install trajan here - having it in environment.yml made it fail
+# install trajan here - having it in environment.yml made it fail - commented in environment.yml
 RUN pip install trajan
 
 # Test installation
