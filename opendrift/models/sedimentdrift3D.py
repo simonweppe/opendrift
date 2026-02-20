@@ -325,7 +325,7 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
         #######################################################
 
         # depth-averaged current approach :
-        if True : # current data fron reader is depth-averaged
+        if True : # current data from reader is depth-averaged
             Cdrag=( 0.4 /(np.log(abs(water_depth/z0))-1) )**2
             #Now compute the bed shear stress [N/m2] 
             tau_cur=rho_water*Cdrag*current_speed**2 # eq. 7.1 in COHERENS Manual

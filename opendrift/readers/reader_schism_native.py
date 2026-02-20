@@ -97,7 +97,7 @@ class Reader(BaseReader,UnstructuredReader):
         # Default interpolation method, see function interpolate_block()
         self.interpolation = 'linearNDFast'
         self.convolve = None  # Convolution kernel or kernel size
-        
+
         # [name_used_in_schism : equivalent_CF_name]
         schism_mapping = {
             'dahv': 'x_sea_water_velocity', 
@@ -113,7 +113,13 @@ class Reader(BaseReader,UnstructuredReader):
             'vertical_velocity' : 'upward_sea_water_velocity',
             # 'wetdry_elem': 'land_binary_mask',
             'wind_speed' : 'x_wind',
-            'wind_speed' : 'y_wind' , }
+            'wind_speed' : 'y_wind' , 
+            'WWM_1'      : 'sea_surface_wave_significant_height', #!sig. height (m)
+            'WWM_11'     : 'sea_surface_wave_period_at_variance_spectral_density_maximum', #!Discrete peak period (sec) - Tp
+            'WWM_18'     : 'sea_surface_wave_from_direction', #!Peak (dominant) direction (degr)
+            'stokes_hvel': 'sea_surface_wave_stokes_drift_x_velocity',
+            'stokes_hvel': 'sea_surface_wave_stokes_drift_y_velocity',
+            }
             # 'diffusivity' : 'ocean_vertical_diffusivity'}
             # viscosity
 
@@ -419,7 +425,10 @@ class Reader(BaseReader,UnstructuredReader):
                     self.variable_mapping['y_sea_water_velocity'] = str(var_name)
                 elif var_name == 'wind_speed' : # wind speed vectors
                     self.variable_mapping['x_wind'] = str(var_name)
-                    self.variable_mapping['y_wind'] = str(var_name)                  
+                    self.variable_mapping['y_wind'] = str(var_name)
+                elif var_name == 'stokes_hvel' : # wind speed vectors
+                    self.variable_mapping['sea_surface_wave_stokes_drift_x_velocity'] = str(var_name)
+                    self.variable_mapping['sea_surface_wave_stokes_drift_y_velocity'] = str(var_name)                      
                 else: # standard mapping                                    
                     self.variable_mapping[schism_mapping[var_name]] = \
                         str(var_name) 
@@ -495,7 +504,10 @@ class Reader(BaseReader,UnstructuredReader):
 
         # extracts the full slices of requested_variables at time indxTime
         for par in requested_variables:
-            if par not in ['x_sea_water_velocity','y_sea_water_velocity','land_binary_mask','x_wind','y_wind'] :
+            if par not in [ 'x_sea_water_velocity','y_sea_water_velocity',
+                            'x_wind','y_wind',
+                            'sea_surface_wave_stokes_drift_x_velocity','sea_surface_wave_stokes_drift_y_velocity',
+                            'land_binary_mask'] :
                 # standard case - for all variables except vectors such as current, wind, etc..
                 var = self.dataset.variables[self.variable_mapping[par]]
                 if var.ndim == 1:
@@ -513,7 +525,8 @@ class Reader(BaseReader,UnstructuredReader):
                 else:
                     raise ValueError('Wrong dimension of %s: %i' %
                                      (self.variable_mapping[par], var.ndim))
-            elif par in ['x_sea_water_velocity','y_sea_water_velocity','x_wind','y_wind'] :
+            elif par in [   'x_sea_water_velocity','y_sea_water_velocity',
+                            'x_wind','y_wind']:
                 # requested variables are vectors : current or wind velocities
                 # In SCHISM netcdf files, both [u,v] components are saved 
                 # as two different dimensions of the same variable.
@@ -535,7 +548,17 @@ class Reader(BaseReader,UnstructuredReader):
                     # convert 3D data matrix to one column array and define corresponding data coordinates [x,y,z]
                     # (+ update variables dictionary with 3d coords if needed)
                     data,variables = self.convert_3d_to_array(indxTime,data,variables)
-
+            
+            elif par in ['sea_surface_wave_stokes_drift_x_velocity','sea_surface_wave_stokes_drift_y_velocity',] :
+                # for stokes drift, SCHISM outputs the variable <stokes_hvel> in 3D (time, nSCHISM_hgrid_node, nSCHISM_vgrid_layers, two) (even for 2D barotopic simulations)
+                # we only want the surface level  : nSCHISM_vgrid_layers = -1
+                var = self.dataset.variables[self.variable_mapping[par]].isel(nSCHISM_vgrid_layers=-1) # get surface layer stokes
+                if par in ['sea_surface_wave_stokes_drift_x_velocity']:
+                    data = var[indxTime,:,0]
+                elif par in ['sea_surface_wave_stokes_drift_y_velocity']:
+                    data = var[indxTime,:,1] 
+                logger.debug('reading 2D stokes velocity data from unstructured reader %s' % (par))
+            
             elif (par in ['land_binary_mask']) & (self.use_model_landmask) :
                 dry_elem = self.dataset.variables[self.variable_mapping[par]][indxTime,:] # dry_elem =1 if dry, 0 if wet, for each element face
                 # find indices of nodes making up the dry elements
