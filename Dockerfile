@@ -2,8 +2,9 @@
 
 # Use a minimal base image
 #FROM mambaorg/micromamba:1.4.2
-FROM mambaorg/micromamba:2.1.1 # updated as per official 
 
+# updated as per official opendrift image
+FROM mambaorg/micromamba:2.1.1 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV MAMBA_DOCKERFILE_ACTIVATE=1
 
