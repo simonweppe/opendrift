@@ -22,6 +22,7 @@ import pytest
 from datetime import datetime, timedelta
 import numpy as np
 
+from opendrift import test_data_folder as tdf
 from opendrift.readers import reader_ROMS_native
 from opendrift.readers import reader_global_landmask
 from opendrift.readers import reader_oscillating
@@ -34,7 +35,7 @@ class TestStranding(unittest.TestCase):
 
     def test_stranding_3d(self):
         o = PelagicEggDrift(loglevel=30)
-        reader_nordic = reader_ROMS_native.Reader(o.test_data_folder() +
+        reader_nordic = reader_ROMS_native.Reader(tdf +
         '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
         o.add_reader(reader_nordic)
         o.set_config('environment:fallback:y_wind', 10)  # Some wind for mixing
@@ -51,14 +52,14 @@ class TestStranding(unittest.TestCase):
         self.assertEqual(o.elements_deactivated.status.min(), 1)
         self.assertEqual(o.elements_deactivated.status.max(), 1)
         self.assertEqual(o.num_elements_scheduled(), 0)
-        self.assertEqual(o.num_elements_active(), 82)
+        self.assertEqual(o.num_elements_active(), 77)
         self.assertEqual(o.num_elements_activated(), 100)
-        self.assertEqual(o.num_elements_deactivated(), 18)
+        self.assertEqual(o.num_elements_deactivated(), 23)
         self.assertEqual(o.num_elements_total(), 100)
 
         # Check calculated trajectory lengths and speeds
         total_length, distances, speeds = o.get_trajectory_lengths()
-        self.assertAlmostEqual(total_length.max(), 15722.7, 1)
+        self.assertAlmostEqual(total_length.max(), 14978.7, 1)
         self.assertAlmostEqual(total_length.min(), 1225.2, 1)
         self.assertAlmostEqual(speeds.max(), 0.132, 1)
         self.assertAlmostEqual(distances.max(), 2859.0, 1)
@@ -69,9 +70,9 @@ class TestStranding(unittest.TestCase):
         o.set_config('general:coastline_action', 'previous')
         o.set_config('drift:vertical_mixing', False)
         o.set_config('drift:max_speed', 1)
-        reader_arctic = reader_netCDF_CF_generic.Reader(o.test_data_folder() +
+        reader_arctic = reader_netCDF_CF_generic.Reader(tdf +
         '2Feb2016_Nordic_sigma_3d/Arctic20_1to5Feb_2016.nc')
-        reader_nordic = reader_ROMS_native.Reader(o.test_data_folder() +
+        reader_nordic = reader_ROMS_native.Reader(tdf +
         '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
         o.add_reader(reader_arctic)
         o.add_reader(reader_nordic)
@@ -89,7 +90,7 @@ class TestStranding(unittest.TestCase):
     def test_stranding_options(self):
         reader_osc = reader_oscillating.Reader(
                 'x_sea_water_velocity', amplitude=.5,
-                period_seconds=3600*6,
+                period=timedelta(hours=6),
                 zero_time=datetime.now())
 
         reader_global = reader_global_landmask.Reader()
@@ -158,6 +159,22 @@ class TestStranding(unittest.TestCase):
         o2.run(steps=10)
         self.assertAlmostEqual(o.elements_deactivated.lon[0], 5.066, 3)
         self.assertAlmostEqual(o2.elements_deactivated.lon[0], 5.051, 3)
+
+    def test_previous_approximation(self):
+        o = OceanDrift(loglevel=0)
+        o.set_config('general:coastline_action', 'previous')
+        o.set_config('environment:constant:x_sea_water_velocity', 1)
+        o.set_config('general:coastline_approximation_precision', None)
+        o.seed_elements(lon=4.55, lat=60, time=datetime.now())
+        o.run(steps=10)
+        self.assertAlmostEqual(o.elements.lon[0], 5.00161, 4)
+        o2 = OceanDrift(loglevel=0)
+        o2.set_config('general:coastline_action', 'previous')
+        o2.set_config('environment:constant:x_sea_water_velocity', 1)
+        o2.set_config('general:coastline_approximation_precision', .001)
+        o2.seed_elements(lon=4.55, lat=60, time=datetime.now())
+        o2.run(steps=10)
+        self.assertAlmostEqual(o2.elements.lon[0], 5.1152, 3)
 
 
 if __name__ == '__main__':

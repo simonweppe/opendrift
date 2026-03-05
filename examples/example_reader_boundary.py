@@ -8,6 +8,7 @@ to demonstrate autmatic transition back and forth with another model
 covering a larger domain (Topaz).
 """
 
+from datetime import datetime
 import numpy as np
 from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.models.oceandrift import OceanDrift
@@ -15,7 +16,7 @@ from opendrift.models.oceandrift import OceanDrift
 o = OceanDrift(loglevel=20)  # Set loglevel to 0 for debug information
 
 # Norkyst
-reader_norkyst = reader_netCDF_CF_generic.Reader('https://thredds.met.no/thredds/dodsC/sea/norkyst800m/1h/aggregate_be')
+reader_norkyst = reader_netCDF_CF_generic.Reader('https://thredds.met.no/thredds/dodsC/fou-hi/norkystv3_800m_m00_be')
 
 # Topaz
 reader_topaz = reader_netCDF_CF_generic.Reader('https://thredds.met.no/thredds/dodsC/cmems/topaz6/dataset-topaz6-arc-15min-3km-be.ncml')
@@ -26,14 +27,14 @@ o.set_config('drift:vertical_mixing', False)
 
 #%%
 # Seeding some particles
-lons = np.linspace(10.2, 12.2, 50)
+lons = np.linspace(5, 8, 50)
 lats = np.linspace(69.8, 70.8, 50)
 lons, lats = np.meshgrid(lons, lats)
 
 #%%
 # Seed oil elements at defined position and time
 o.seed_elements(lons, lats, radius=0, number=2500,
-                time=reader_topaz.start_time)
+                time=datetime.now())
 
 #%%
 # Running model

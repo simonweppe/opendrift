@@ -20,13 +20,14 @@ histogram_file = 'runoff_histogram.nc'
 #%%
 # First make a simulation with two seedings, marked by *origin_marker*
 o = OceanDrift(loglevel=20)
-o.set_config('drift:horizontal_diffusivity', 300)
+o.set_config('environment:constant:horizontal_diffusivity', 300)
 o.set_config('general:coastline_action', 'previous')
+o.set_config('general:coastline_approximation_precision', None)  # Faster to go back to previous
 t1 = datetime.now()
 t2 = t1 + timedelta(hours=48)
-reader_x = reader_oscillating.Reader('x_sea_water_velocity', period_seconds=3600*24,
+reader_x = reader_oscillating.Reader('x_sea_water_velocity', period=timedelta(hours=24),
                 amplitude=1, zero_time=t1)
-reader_y = reader_oscillating.Reader('y_sea_water_velocity', period_seconds=3600*72,
+reader_y = reader_oscillating.Reader('y_sea_water_velocity', period=timedelta(hours=72),
                 amplitude=.5, zero_time=t2)
 o.add_reader([reader_x, reader_y])
 number = 25000

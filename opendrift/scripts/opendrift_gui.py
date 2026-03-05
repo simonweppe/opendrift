@@ -8,6 +8,7 @@ if __name__ == '__main__':
 import sys
 import logging
 import os
+import argparse
 from datetime import datetime, timedelta
 import numpy as np
 
@@ -24,6 +25,7 @@ from opendrift.models.shipdrift import ShipDrift
 from opendrift.models.openberg import OpenBerg
 from opendrift.models.plastdrift import PlastDrift
 from opendrift.models.radionuclides import RadionuclideDrift
+from opendrift.models.basemodel import Mode
 
 # Class to redirect output to text box
 class TextRedirector:
@@ -101,7 +103,9 @@ class OpenDriftGUI(tk.Tk):
             'seed:m3_per_hour': {'default': 100}
             }
 
-    def __init__(self):
+    def __init__(self, forcing_files):
+
+        self.forcing_files = forcing_files
 
         tk.Tk.__init__(self)
 
@@ -112,16 +116,18 @@ class OpenDriftGUI(tk.Tk):
         ##################
         self.n = ttk.Notebook(self.master)
         self.n.grid()
-        self.seed = ttk.Frame(self.n)
+        self.seed = tk.Frame(self.n)
         self.confignotebook = ttk.Notebook(self.n)
-        self.config = ttk.Frame(self.confignotebook)
-        self.forcing = ttk.Frame(self.n)
+        self.config = tk.Frame(self.confignotebook)
+        self.forcing = tk.Frame(self.n)
         self.n.add(self.seed, text='Seeding')
         self.n.add(self.confignotebook, text='Config')
         self.n.add(self.forcing, text='Forcing')
         self.confignotebook.add(self.config, text='SubConfig')
 
         # Top
+        self.logo = tk.Frame(self.seed, bg='white')
+        self.logo.grid(row=0, column=0, rowspan=1)
         self.top = tk.Frame(self.seed,
                             relief=tk.FLAT, pady=25, padx=25)
         self.top.grid(row=0, column=1, rowspan=1)
@@ -339,8 +345,8 @@ class OpenDriftGUI(tk.Tk):
         ##############
         # Output box
         ##############
-        self.text = tk.Text(self.output, wrap="word", height=18)
-        self.text.grid(row=60, columnspan=6, sticky='nsw')
+        self.text = tk.Text(self.output, wrap="word", height=50)
+        self.text.grid(row=60, columnspan=10, sticky='nsw')
         self.text.tag_configure("stderr", foreground="#b22222")
         if os.getenv('OPENDRIFT_GUI_OUTPUT', 'gui') == 'gui':
             sys.stdout = TextRedirector(self.text, "stdout")
@@ -366,21 +372,24 @@ class OpenDriftGUI(tk.Tk):
         ##############
         self.set_model(list(self.opendrift_models)[0])
 
-        with open(files('opendrift.scripts').joinpath('data_sources.txt')) as fd:
-            forcingfiles = fd.readlines()
-
-        for i, ff in enumerate(forcingfiles):
+        for i, ff in enumerate(self.forcing_files):
             tk.Label(self.forcing, text=ff.strip(), wraplength=650, font=('Courier', 8)).grid(
                      row=i, column=0, sticky=tk.W)
 
         ##########################
         try:
-            img = ImageTk.PhotoImage(Image.open(
-                self.o.test_data_folder() +
-                                     '../../docs/opendrift_logo.png'))
-            panel = tk.Label(self.seed, image=img)
-            panel.image = img
-            panel.grid(row=0, column=0)
+            if datetime.now().month == 12 and datetime.now().day > 10:
+                img = ImageTk.PhotoImage(Image.open(
+                    opendrift.test_data_folder +
+                                         '../../docs/hohohOpenDrift.jpg').resize((200, 200)))
+                self.seed.configure(bg='lightblue')
+            else:
+                img = ImageTk.PhotoImage(Image.open(
+                    opendrift.test_data_folder +
+                                         '../../docs/opendrift_logo.png'))
+            self.logo_image=tk.Label(self.logo, image=img)
+            self.logo_image.image = img
+            self.logo_image.grid(row=0, column=0)
         except Exception as e:
             print(e)
             pass # Could not display logo
@@ -391,6 +400,13 @@ class OpenDriftGUI(tk.Tk):
         tk.Button(self.seed, text=startbutton, bg='green',
                   command=self.run_opendrift).grid(row=80, column=1,
                                               sticky=tk.W, pady=4)
+
+        try:
+            import opendrift_gui_conf
+            opendrift_gui_conf.customize(self)
+        except Exception as e:
+            print('No custom configuration')
+            #print(e)
 
     def copy_position(self, a, b, c):
         self.elat.delete(0, tk.END)
@@ -407,9 +423,13 @@ class OpenDriftGUI(tk.Tk):
 
     def handle_result(self, command):
 
+        mode = self.o.mode  # To be reset after plotting
+        self.o.mode = Mode.Result
         from os.path import expanduser
         homefolder = expanduser("~")
         filename = homefolder + '/' + self.simulationname
+        background_variable = self._background_fields[self.background_field.get()]['variable']
+        background_label = self._background_fields[self.background_field.get()]['label']
 
         if command[0:4] == 'save':
             plt.switch_backend('agg')
@@ -418,11 +438,11 @@ class OpenDriftGUI(tk.Tk):
 
         if command == 'saveanimation':
             filename = filename + '.mp4'
-            self.o.animation(filename=filename)
+            self.o.animation(filename=filename, background=background_variable, clabel=background_label)
             print('='*30 + '\nAnimation saved to file:\n'
                   + filename + '\n' + '='*30)
         elif command == 'showanimation':
-            self.o.animation()
+            self.o.animation(background=background_variable, clabel=background_label)
         elif command == 'saveplot':
             filename = filename + '.png'
             self.o.plot(filename=filename)
@@ -475,6 +495,8 @@ class OpenDriftGUI(tk.Tk):
                 print('Could not copy file:')
                 print(e)
 
+        self.o.mode = mode  # resetting
+
     def validate_config(self, value_if_allowed, prior_value, key):
         """From config menu selection."""
         if value_if_allowed == 'None':
@@ -487,10 +509,12 @@ class OpenDriftGUI(tk.Tk):
                 value_if_allowed = float(value_if_allowed)
             except:
                 return False
+
         try:
             self.o.set_config(key, value_if_allowed)
             return True
-        except:
+        except Exception as e:
+            print(e)
             return False
 
     def set_model(self, model, rebuild_gui=True, logfile=None):
@@ -711,13 +735,17 @@ class OpenDriftGUI(tk.Tk):
         else:
             cone = False
 
-        so = Leeway(loglevel=50)
+        so = OceanDrift(loglevel=50)
         for k,v in self.GUI_config.items():
             try:
                 so.set_config(k, v)
             except:
                 pass
-        so.seed_cone(lon=lon, lat=lat, radius=radius, time=start_time)
+        number = self.GUI_config['seed:number']['default']
+        if cone is True:
+            so.seed_cone(lon=lon, lat=lat, number=number, radius=radius, time=start_time)
+        else:
+            so.seed_elements(lon=lon, lat=lat, radius=radius, number=number, time=start_time)
         so.plot(buffer=.5, fast=True)
         del so
 
@@ -787,8 +815,7 @@ class OpenDriftGUI(tk.Tk):
                     nothing
             self.o.set_config(se, val)
 
-        with files('opendrift.scripts').joinpath('data_sources.txt') as f:
-            self.o.add_readers_from_file(f)
+        self.o.add_readers_from_list(self.forcing_files)
 
         self.o.seed_cone(lon=lon, lat=lat, radius=radius,
                          time=start_time)#, #cone=cone,
@@ -825,6 +852,20 @@ class OpenDriftGUI(tk.Tk):
         self.results = tk.Frame(self.seed, bd=2,
                                relief=tk.FLAT, padx=5, pady=0)
         self.results.grid(row=70, column=3, columnspan=1, sticky='ew')
+
+        self._background_fields = {
+            'No background': {'label': None, 'variable': None},
+            'Current': {'label': 'Surface current  [m/s]',
+                        'variable': ['x_sea_water_velocity', 'y_sea_water_velocity']},
+            'Wind': {'label': 'Wind speed  [m/s]',
+                     'variable': ['x_wind', 'y_wind']}
+            }
+        self.background_field = tk.StringVar()
+        self.background_field.set(list(self._background_fields)[0])
+        self.background_field_drop = tk.OptionMenu(self.results, self.background_field,
+            *(list(self._background_fields)))
+        self.background_field_drop.grid(row=5, column=1)
+
         tk.Button(self.results, text='Show animation',
                   command=lambda: self.handle_result(
                     'showanimation')).grid(row=10, column=1)
@@ -881,15 +922,37 @@ class OpenDriftGUI(tk.Tk):
                       command=lambda: self.handle_result(
                           'copy_netcdf')).grid(row=81, column=1)
 
+        # Allow setting config for next run
+        self.o.mode = Mode.Config
+
 def main():
-    OpenDriftGUI().mainloop()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-f', '--forcing', type=str, help='A file with URLs/names of forcing datasets, overriding built-in data_sources.txt')
+    parser.add_argument('-t', '--terminal', action='store_true', help='redirect otput to terminal instead of GUI')
 
-if __name__ == '__main__':
+    args = parser.parse_args()
 
-    # Add any argument to redirect output to terminal instead of GUI window.
-    # TODO: must be a better way to pass arguments to Tkinter?
-    if len(sys.argv) > 1:
+    forcing_files_ok = False
+    if args.forcing is not None:
+        try:
+            with open(args.forcing) as fd:
+                forcing_files = fd.readlines()
+            forcing_files_ok = True
+        except:
+            print(f'WARNING: Could not read {args.forcing}, using default OpenDrift forcing configuration instead.')
+    if forcing_files_ok is False:
+        with open(files('opendrift.scripts').joinpath('data_sources.txt')) as fd:
+            forcing_files = fd.readlines()
+
+    ## Add any argument to redirect output to terminal instead of GUI window.
+    ## TODO: must be a better way to pass arguments to Tkinter?
+    if args.terminal is True:
         os.environ['OPENDRIFT_GUI_OUTPUT'] = 'terminal'
     else:
         os.environ['OPENDRIFT_GUI_OUTPUT'] = 'gui'
-    OpenDriftGUI().mainloop()
+
+    OpenDriftGUI(forcing_files=forcing_files).mainloop()
+
+
+if __name__ == '__main__':
+    main()

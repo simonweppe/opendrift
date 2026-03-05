@@ -20,7 +20,10 @@
 import os
 import pytest
 from datetime import datetime, timedelta
+import numpy as np
+import xarray as xr
 
+from opendrift import test_data_folder as tdf
 from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.models.oceandrift import OceanDrift
 try:
@@ -32,6 +35,45 @@ except:
 need_fastparquet = pytest.mark.skipif(has_fastparquet == False,
         reason = 'fastparquet must be installed to use fastparquet writer')
 
+def test_export_variables():
+    o = OceanDrift(loglevel=50)
+    o.set_config('drift:vertical_advection', True)  # Needs previous value of sea_surface_height
+    o.set_config('general:use_auto_landmask', False)
+    o.set_config('environment:constant:land_binary_mask', 0)
+    o.seed_elements(lon=3, lat=60, time=datetime.now())
+    o.run(steps=2, export_variables=['z'])
+    assert 'sea_surface_height' in o.result.var()
+    assert 'land_binary_mask' not in o.result.var()
+
+def test_custom_result(tmpdir):
+    """Adding custom data to self.result during self.prepare_run()"""
+
+    def prepare_run(self):
+        # Add custom scalar as attribute
+        self.result['custom_scalar'] = 5
+        # Add custom list as attribute
+        self.result['custom_list'] = ['item1', 'item2', 'item3']
+        # Add custom array as DataArray with dimensions other than (time, trajectory)
+        da = xr.DataArray(
+            data=np.random.rand(3, 3),
+            dims=["dim1", "dim2"]
+             )
+        self.result['custom_array'] = da
+
+    outfile = tmpdir + "test_custom_result.nc"
+    o = OceanDrift(loglevel=50)
+    time = datetime.now()
+    o.prepare_run = prepare_run.__get__(o)  # Bind custom prepare_run to the instance
+    o.seed_elements(lon=4, lat=60, time=time)
+    o.run(steps=4, export_buffer_length=2, outfile=outfile)
+
+    assert o.result.custom_array.shape == (3, 3)
+    assert o.result.custom_scalar == 5
+    assert len(o.result.custom_list) == 3
+    ds = xr.open_dataset(outfile)
+    assert(ds.custom_scalar == 5)
+    assert 'time_coverage_end' in o.result.attrs
+    assert 'time_coverage_end' in ds.attrs
 
 @need_fastparquet
 def test_io_parquet(tmpdir):
@@ -41,8 +83,7 @@ def test_io_parquet(tmpdir):
         iomodule="parquet",
     )
     norkyst = reader_netCDF_CF_generic.Reader(
-        o.test_data_folder()
-        + "16Nov2015_NorKyst_z_surface/norkyst800_subset_16Nov2015.nc"
+        tdf + "16Nov2015_NorKyst_z_surface/norkyst800_subset_16Nov2015.nc"
     )
     o.add_reader(norkyst)
     o.seed_elements(4.96, 60.1, radius=10, number=10, time=norkyst.start_time)

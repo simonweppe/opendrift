@@ -22,25 +22,20 @@ import unittest
 from datetime import datetime, timedelta
 import netCDF4
 
+from opendrift import test_data_folder as tdf
 from opendrift.readers import reader_global_landmask
 from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.readers import reader_ROMS_native
 from opendrift.models.pelagicegg import PelagicEggDrift
 from opendrift.models.oceandrift import OceanDrift
 
-#try:
-#    netCDF4.Dataset('https://thredds.met.no/thredds/dodsC/sea/norkyst800m/1h/aggregate_be')
-#    thredds_support = True
-#except:
-#    thredds_support = False
-
 
 class TestRun(unittest.TestCase):
 
     def test_reader_boundary(self):
         o = PelagicEggDrift(loglevel=20)
-        reader_nordic = reader_ROMS_native.Reader(o.test_data_folder() + '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
-        reader_arctic = reader_netCDF_CF_generic.Reader(o.test_data_folder() + '2Feb2016_Nordic_sigma_3d/Arctic20_1to5Feb_2016.nc')
+        reader_nordic = reader_ROMS_native.Reader(tdf + '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
+        reader_arctic = reader_netCDF_CF_generic.Reader(tdf + '2Feb2016_Nordic_sigma_3d/Arctic20_1to5Feb_2016.nc')
         ######################################################
         # Vertical interpolation is another issue to be fixed:
         reader_nordic.zlevels = reader_arctic.z
@@ -57,33 +52,14 @@ class TestRun(unittest.TestCase):
         self.assertEqual(o.num_elements_active(), 100)
         self.assertEqual(o.num_elements_deactivated(), 0)
         self.assertAlmostEqual(o.elements.lat[0], 71.16, 1)
-        #self.assertAlmostEqual(o.elements.z.min(), -41.92, 1)  # With past ROMS-masking
-        self.assertAlmostEqual(o.elements.z.min(), -46.75, 1)
+        self.assertAlmostEqual(o.elements.z.min(), -46.65, 1)
         self.assertAlmostEqual(o.elements.z.max(), -0.28, 1)
-        #self.assertAlmostEqual(o.elements.lon.max(), 14.949, 2)
         self.assertAlmostEqual(o.elements.lon.max(), 14.915, 2)
-
-    #@unittest.skipIf(thredds_support is False,
-    #                 'NetCDF4 library does not support OPeNDAP')
-    #def atest_reader_boundary_thredds(self):
-    #    o = PelagicEggDrift(loglevel=20)
-
-    #    reader_norkyst = reader_netCDF_CF_generic.Reader('https://thredds.met.no/thredds/dodsC/sea/norkyst800m/1h/aggregate_be')
-    #    reader_nordic = reader_netCDF_CF_generic.Reader('https://thredds.met.no/thredds/dodsC/fou-hi/nordic4km-1h/Nordic-4km_SURF_1h_avg_00.nc')
-    #    o.add_reader([reader_norkyst, reader_nordic])
-    #    o.set_config('environment:fallback:land_binary_mask', 0)
-    #    lon = 0.2; lat = 61.0; # Close to NorKyst boundary
-    #    time = reader_nordic.start_time
-    #    o.seed_elements(lon, lat, radius=5000, number=100, time=time, z=0)
-    #    o.set_config('vertical_mixing:timestep', 5)
-    #    o.run(steps=5, time_step=3600,
-    #          time_step_output=3600)
-
 
     def test_truncate_ocean_model(self):
         o = OceanDrift(loglevel=30)
         o.set_config('general:use_auto_landmask', False)
-        reader_nordic = reader_ROMS_native.Reader(o.test_data_folder() + \
+        reader_nordic = reader_ROMS_native.Reader(tdf + \
             '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
         o.add_reader(reader_nordic)
         o.seed_elements(lon=15.0, lat=71.1, radius=0, number=10,

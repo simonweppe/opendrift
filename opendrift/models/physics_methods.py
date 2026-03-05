@@ -77,7 +77,19 @@ def wind_drift_factor_from_trajectory(trajectory_dict, min_period=None):
     azimuth_offset = (azimuth_offset + 360) % 360
     azimuth_offset[azimuth_offset>180] -= 360
 
-    return wind_drift_factor, azimuth_offset
+    # # New: optimize combined cdf and wdf
+    # azimuth_north, a2, distance_north = geod.inv(lon[0:-1], lat[0:-1], lon[0:-1], lat[1:])
+    # azimuth_east, a2, distance_east = geod.inv(lon[0:-1], lat[0:-1], lon[1:], lat[0:-1])
+    # cu = cu[0:-1]
+    # cv = cv[0:-1]
+    # wu = wu[0:-1]
+    # wv = wv[0:-1]
+    # su = distance_east / time_step
+    # sv = distance_north / time_step
+    # wdf = (sv - su*(cv/cu) ) / (wv - wu*(cv/cu))
+    # cdf = (sv - su*(wv/wu) ) / (cv - cu*(wv/wu))
+
+    return wind_drift_factor, azimuth_offset #, wdf, cdf
 
 def plot_wind_drift_factor(wdf, azimuth, wmax_plot=None):
     '''Polar plot of array of wind drift factor, with associated azimuthal offset'''
@@ -203,45 +215,6 @@ def verticaldiffusivity_stepfunction(depth, MLD=20,
     K[depth>MLD] = k_below
     return K
 
-def gls_tke(windstress, depth, sea_water_density,
-            tke, generic_length_scale, gls_parameters=None):
-    '''From LADIM model.'''
-
-    g = 9.81
-    f0 = 0.1  # mean wave frequency
-    c_w = 4.0  # wave mixing parameter
-    c_i = 0.2  # coefficient for the interior
-    if gls_parameters is None:
-        # GLS parameters from ROMS, k-omega closure (see ocean.in)
-        p = 0.0
-        m = 1.0
-        n = 1.0
-        cmu0 = 0.5477  # for KANTHA_CLAYSON stability function
-    else:
-        p = gls_parameters['gls_p']
-        m = gls_parameters['gls_m']
-        n = gls_parameters['gls_n']
-        cmu0 = gls_parameters['gls_cmu0']
-
-    phi = 100. * (windstress/sea_water_density)**(3./2.)
-
-    # dissipation and turbulent length scale for interiour of mixed layer
-    eps = cmu0**(3.+p/n)*tke**(3./2.+m/n)*generic_length_scale**(-1./n)
-    l_i = c_i * tke**(3./2.) * eps**(-1.)
-
-    # diffusivity for interior of mixed layer
-    # c_i = sqrt(2.) * cmu0**3
-    ki = c_i * (2.*tke)**0.5 * l_i
-
-    # length scale and diffusivity of wave-enhanced layer
-    l_w = np.sqrt(phi / (g*f0))
-    kwave = c_w * (2*tke)**0.5 * l_w
-    kmix = ki + kwave
-
-    K, N = np.meshgrid(kmix, depths)
-
-    return K
-
 def plot_stokes_profile(profiles, view=['vertical', 'birdseye', 'u', 'v'], filename=None):
     '''Plot vertical profile of Stokes drift
 
@@ -328,11 +301,15 @@ def stokes_drift_profile_monochromatic(stokes_u_surface, stokes_v_surface,
     km = stokes_surface_speed / (
             2*stokes_transport_monochromatic(mean_wave_period, significant_wave_height))
 
-    stokes_speed = stokes_surface_speed*np.exp(2*km*z)
+    #stokes_speed = stokes_surface_speed*np.exp(2*km*z)
+    unitprofile = np.exp(2*km*z)
+    stokes_speed = stokes_surface_speed*unitprofile
 
     zeromask = stokes_surface_speed == 0
-    stokes_u = stokes_speed*stokes_u_surface/stokes_surface_speed
-    stokes_v = stokes_speed*stokes_v_surface/stokes_surface_speed
+    #stokes_u = stokes_speed*stokes_u_surface/stokes_surface_speed
+    stokes_u = stokes_u_surface*unitprofile
+    #stokes_v = stokes_speed*stokes_v_surface/stokes_surface_speed
+    stokes_v = stokes_v_surface*unitprofile
     stokes_u[zeromask] = 0
     stokes_v[zeromask] = 0
 
@@ -353,11 +330,15 @@ def stokes_drift_profile_exponential(stokes_u_surface, stokes_v_surface,
           2*stokes_transport_monochromatic(mean_wave_period, significant_wave_height))
     ke = km/3
 
-    stokes_speed = stokes_surface_speed*np.exp(2*ke*z)/(1-8*ke*z)
+    #stokes_speed = stokes_surface_speed*np.exp(2*ke*z)/(1-8*ke*z)
+    unitprofile = np.exp(2.0*ke*z)/(1.0-8.0*ke*z)
+    stokes_speed = stokes_surface_speed*unitprofile
 
     zeromask = stokes_surface_speed == 0
-    stokes_u = stokes_speed*stokes_u_surface/stokes_surface_speed
-    stokes_v = stokes_speed*stokes_v_surface/stokes_surface_speed
+    #stokes_u = stokes_speed*stokes_u_surface/stokes_surface_speed
+    stokes_u = stokes_u_surface*unitprofile
+    #stokes_v = stokes_speed*stokes_v_surface/stokes_surface_speed
+    stokes_v = stokes_v_surface*unitprofile
     stokes_u[zeromask] = 0
     stokes_v[zeromask] = 0
 
@@ -378,12 +359,16 @@ def stokes_drift_profile_phillips(stokes_u_surface, stokes_v_surface,
     km = stokes_surface_speed * (1-2*beta/3)/ (
             2*stokes_transport_monochromatic(mean_wave_period, significant_wave_height))
 
-    stokes_speed = stokes_surface_speed*(np.exp(2*km*z) -
-        beta*np.sqrt(2*np.pi*km*np.abs(z))*sp.special.erfc(np.sqrt(2*km*np.abs(z))))
+    #stokes_speed = stokes_surface_speed*(np.exp(2*km*z) -
+    #    beta*np.sqrt(2*np.pi*km*np.abs(z))*sp.special.erfc(np.sqrt(2*km*np.abs(z))))
+    unitprofile = (np.exp(2*km*z) - beta*np.sqrt(2*np.pi*km*np.abs(z))*sp.special.erfc(np.sqrt(2*km*np.abs(z))))
+    stokes_speed = stokes_surface_speed*unitprofile
 
     zeromask = stokes_surface_speed == 0
-    stokes_u = stokes_speed*stokes_u_surface/stokes_surface_speed
-    stokes_v = stokes_speed*stokes_v_surface/stokes_surface_speed
+    #stokes_u = stokes_speed*stokes_u_surface/stokes_surface_speed
+    stokes_u = stokes_u_surface*unitprofile
+    #stokes_v = stokes_speed*stokes_v_surface/stokes_surface_speed
+    stokes_v = stokes_v_surface*unitprofile
     stokes_u[zeromask] = 0
     stokes_v[zeromask] = 0
 
@@ -612,7 +597,7 @@ class PhysicsMethods:
             mid_env, profiles, missing = self.env.get_environment(
                 ['x_sea_water_velocity', 'y_sea_water_velocity'],
                 self.time + self.time_step/2,
-                mid_lon, mid_lat, self.elements.z, profiles=None)
+                mid_lon, mid_lat, self.elements.z, profiles=None, element_ID=self.elements.ID)
             if self.get_config('drift:advection_scheme') == 'runge-kutta4':
                 logger.debug('Runge-kutta 4th order...')
                 x_vel2 = mid_env['x_sea_water_velocity']
@@ -627,7 +612,7 @@ class PhysicsMethods:
                 env2, profiles, missing = self.env.get_environment(
                     ['x_sea_water_velocity', 'y_sea_water_velocity'],
                     self.time + self.time_step/2,
-                    lon2, lat2, self.elements.z, profiles=None)
+                    lon2, lat2, self.elements.z, profiles=None, element_ID=self.elements.ID)
                 # Third step
                 x_vel3 = env2['x_sea_water_velocity']
                 y_vel3 = env2['y_sea_water_velocity']
@@ -641,7 +626,7 @@ class PhysicsMethods:
                 env3, profiles, missing = self.env.get_environment(
                     ['x_sea_water_velocity', 'y_sea_water_velocity'],
                     self.time + self.time_step,
-                    lon3, lat3, self.elements.z, profiles=None)
+                    lon3, lat3, self.elements.z, profiles=None, element_ID=self.elements.ID)
                 # Fourth step
                 x_vel4 = env3['x_sea_water_velocity']
                 y_vel4 = env3['y_sea_water_velocity']
@@ -829,6 +814,7 @@ class PhysicsMethods:
 
     def calculate_missing_environment_variables(self):
 
+        # TODO: we need a better mechanism to detect missing variables
         # Missing significant wave height
         if hasattr(self.environment,
                    'sea_surface_wave_significant_height') and \
@@ -837,7 +823,16 @@ class PhysicsMethods:
             logger.debug('Calculating Hs from wind, min: %f, mean: %f, max: %f' %
                           (Hs.min(), Hs.mean(), Hs.max()))
 
-        # Missing wave periode
+        # Missing wave direction related to previously calculated significant wave height.
+        # Set equal to wind direction. (Andrea Gierisch)
+        if hasattr(self.environment, 'sea_surface_wave_from_direction') and \
+                self.environment.sea_surface_wave_from_direction.max() == 0:
+            wave_direction = np.rad2deg(np.arctan2(self.environment.x_wind, self.environment.y_wind))
+            self.environment.sea_surface_wave_from_direction = -wave_direction
+            logger.warning('Setting wave direction equal to wind direction, min: %f, mean: %f, max: %f' %
+                (wave_direction.min(), wave_direction.mean(), wave_direction.max()))
+
+        # Missing wave period
         if hasattr(self.environment,
                    'sea_surface_wave_mean_period_from_variance_spectral_density_second_frequency_moment') and \
                 self.environment.sea_surface_wave_mean_period_from_variance_spectral_density_second_frequency_moment.max() == 0:
@@ -942,45 +937,6 @@ class PhysicsMethods:
         '''Solar elevation at present time and position of active elements.'''
         return solar_elevation(self.time, self.elements.lon, self.elements.lat)
 
-    def sea_floor_depth(self):
-        '''Sea floor depth (positive) for presently active elements'''
-
-        if hasattr(self, 'environment') and \
-                hasattr(self.environment, 'sea_floor_depth_below_sea_level'):
-            if len(self.environment.sea_floor_depth_below_sea_level) == \
-                    self.num_elements_active():
-                sea_floor_depth = \
-                    self.environment.sea_floor_depth_below_sea_level
-        if 'sea_floor_depth' not in locals():
-            env, env_profiles, missing = \
-                self.env.get_environment(['sea_floor_depth_below_sea_level'],
-                                     time=self.time, lon=self.elements.lon,
-                                     lat=self.elements.lat,
-                                     z=0*self.elements.lon, profiles=None)
-            sea_floor_depth = \
-                env['sea_floor_depth_below_sea_level'].astype('float32')
-        return sea_floor_depth
-
-    def sea_surface_height(self):
-        '''Sea surface height (positive/negative) for presently active elements'''
-
-        if hasattr(self, 'environment') and \
-                hasattr(self.environment, 'sea_surface_height'):
-            if len(self.environment.sea_surface_height) == \
-                    self.num_elements_active():
-                sea_surface_height = \
-                    self.environment.sea_surface_height
-        if 'sea_surface_height' not in locals():
-            env, env_profiles, missing = \
-                self.env.get_environment(['sea_surface_height'],
-                                     time=self.time, lon=self.elements.lon,
-                                     lat=self.elements.lat,
-                                     z=0*self.elements.lon, profiles=None)
-            sea_surface_height = \
-                env['sea_surface_height'].astype('float32')
-        return sea_surface_height
-
-
 def wind_drag_coefficient(windspeed):
     '''Large and Pond (1981), J. Phys. Oceanog., 11, 324-336.'''
     Cd = 0.0012*np.ones(len(windspeed))
@@ -997,7 +953,7 @@ def windspeed_from_stress_polyfit(wind_stress):
     return p(wind_stress)
 
 
-def declination(time):
+def solar_declination(time):
     '''Solar declination in degrees.'''
     try:
         day_of_year = time.timetuple().tm_yday
@@ -1038,7 +994,7 @@ def hour_angle(time, longitude):
 
 def solar_elevation(time, longitude, latitude):
     '''Solar elevation in degrees.'''
-    d_rad = np.deg2rad(declination(time))
+    d_rad = np.deg2rad(solar_declination(time))
     h = hour_angle(time, longitude)
     solar_elevation = np.rad2deg(np.arcsin(
         np.sin(np.deg2rad(latitude))*np.sin(d_rad) +

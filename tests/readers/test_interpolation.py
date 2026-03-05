@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import xarray as xr
 
+from opendrift import test_data_folder as tdf
 from opendrift.models.oceandrift import OceanDrift
 from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.readers import reader_ROMS_native
@@ -125,7 +126,6 @@ class TestInterpolation(unittest.TestCase):
         lons = np.arange(-180, 181, 20)
         lats = np.arange(-80, 81, 20)
         lons, lats = np.meshgrid(lons, lats)
-        o.set_config('seed:ocean_only', False)
         o.seed_elements(lon=lons, lat=lats, time=start_time, wind_drift_factor=.1)
         o.run(steps=2, time_step=3600*12)
         # Check expected drift direction for each quadrant
@@ -302,7 +302,7 @@ class TestInterpolation(unittest.TestCase):
 
     def test_interpolation_3dArrays(self):
         """Test interpolation."""
-        reader = reader_netCDF_CF_generic.Reader(o.test_data_folder() +
+        reader = reader_netCDF_CF_generic.Reader(tdf +
             '14Jan2016_NorKyst_z_3d/NorKyst-800m_ZDEPTHS_his_00_3Dsubset.nc')
 
         # 100000 points within 50x50 pixels over sea (corner of domain)
@@ -343,7 +343,7 @@ class TestInterpolation(unittest.TestCase):
 
     def test_repeated(self):
         """Check that block can be used for interpolation to several sets of positions"""
-        reader = reader_netCDF_CF_generic.Reader(o.test_data_folder() +
+        reader = reader_netCDF_CF_generic.Reader(tdf +
             '14Jan2016_NorKyst_z_3d/NorKyst-800m_ZDEPTHS_his_00_3Dsubset.nc')
 
         # 100 points within 50x50 pixels over sea (corner of domain)
@@ -374,7 +374,7 @@ class TestInterpolation(unittest.TestCase):
 
     def test_interpolation_missing(self):
         """Test interpolation."""
-        reader = reader_ROMS_native.Reader(o.test_data_folder() +
+        reader = reader_ROMS_native.Reader(tdf +
             '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
         num_points = 50
         np.random.seed(0)  # To get the same random numbers each time
@@ -406,7 +406,7 @@ class TestInterpolation(unittest.TestCase):
 
     def test_linearNDFast(self):
         """Test interpolation."""
-        reader = reader_ROMS_native.Reader(o.test_data_folder() +
+        reader = reader_ROMS_native.Reader(tdf +
             '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
         reader.buffer=3
         num_points = 50
@@ -453,7 +453,7 @@ class TestInterpolation(unittest.TestCase):
             np.sum(~np.isfinite(env['x_sea_water_velocity'])), 31)
 
     def test_expand_array(self):
-        reader = reader_ROMS_native.Reader(o.test_data_folder() +
+        reader = reader_ROMS_native.Reader(tdf +
             '2Feb2016_Nordic_sigma_3d/Nordic-4km_SLEVELS_avg_00_subset2Feb2016.nc')
         reader.buffer=1
         num_points = 50

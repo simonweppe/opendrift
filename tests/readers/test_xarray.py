@@ -44,7 +44,7 @@ class TestXarray(unittest.TestCase):
                         amplitude=1, zero_time=t2)
         o.add_reader([reader_x, reader_y])
         o.set_config('environment:fallback:land_binary_mask', 0)
-        o.set_config('drift:horizontal_diffusivity', 10)
+        o.set_config('environment:constant:horizontal_diffusivity', 10)
         o.seed_elements(time=t1, lon=4, lat=60, number=100,
                         origin_marker=0)
         o.seed_elements(time=[t1, t2], lon=4.2, lat=60.2, number=100,

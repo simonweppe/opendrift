@@ -92,6 +92,10 @@ class ShipDrift(OpenDriftSimulation):
         'land_binary_mask': {'fallback': None},
         'x_sea_water_velocity': {'fallback': None},
         'y_sea_water_velocity': {'fallback': None},
+        # Since the ShipDrift model is deterministic for given ship size,
+        # (in contrast to the Leeway model), we use a default diffusivity
+        # to yield some variability.
+        'horizontal_diffusivity': {'fallback': 100, 'important': False},
         'sea_surface_wave_stokes_drift_x_velocity': {'fallback': 0},
         'sea_surface_wave_stokes_drift_y_velocity': {'fallback': 0},
         'sea_surface_wave_significant_height': {'fallback': 0},
@@ -147,11 +151,6 @@ class ShipDrift(OpenDriftSimulation):
             'level': CONFIG_LEVEL_ESSENTIAL,
             'description': 'If ships are oriented to the left or right of the downwind direction,'
                 'or whether this is unknown. Left/right means that wind will hit ship from backboard/steerboard'}})
-
-        # Since the ShipDrift model is deterministic for given ship size,
-        # (in contrast to the Leeway model), we use a default diffusivity
-        # to yield some variability.
-        self._set_config_default('drift:horizontal_diffusivity', 100)
 
         self._set_config_default('drift:max_speed', 2)
 

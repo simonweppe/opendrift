@@ -1,6 +1,104 @@
 History
 =======
 
+2026-01-22 / Release v1.14.8
+----------------------------
+* OpenBerg: fixed several bugs, e.g. using wrong wave direction and some wrong parameters. wave_drag_coef is now an element property.
+* reader.plot() and readerinfo now takes lscale as input arguments to specify GSHHG coastline resolution
+* Fixed bug with legends below landmask on plots and animations
+* Adding two new versions of FVCOM-reader, to be generalised in the future (poplarShift, HvardE)
+* Fixed bug regarding writing buffer with no time steps to disk
+* Fixed bug in polygon/geopandas/shapefile seeding. Factored out method points_within_polygon from seed_within_polygon, allowing collecting points for several polygons before a final seed call
+
+2025-12-04 / Release v1.14.7
+----------------------------
+* OpenBerg: added min and max values for iceberg dimensions. Added default horizontal diffusivity of 100 m2/s
+* Default whitespace (buffer) on plots and animations is no longer fixed 0.1 or 0.2 degrees, but 30% of the geographical span of trajectories
+* Applying _FillVal to integer variables in netCDF exporter, to avoid cast warning and NaN values in output file
+* Added secret options to plot and animation methods: line_plot_options for custom line segments, and land_zorder to control whether e.g. vector landmask should be on top or below background fields
+* Method ``__on_land__`` of reader_shape and reader_global_landmask is renamed to ``_on_land`` to be used only internally. Externally to these classes, reader.get_variables() is now used instead
+* Forwarding simulation extent to environment.finalize, allowing readers setting appropriate buffer size
+* Fixed bug where config settings related to particle properties were not applied
+* ROMS reader now supports Vstretching = 5
+
+2025-10-31 / Release v1.14.6
+----------------------------
+* Silencing debug logs from fiona
+
+2025-10-31 / Release v1.14.5
+----------------------------
+* Show animations using Ipython.display if running within notebook or Ipython
+* Loading .env variables if existing, and if python-dotenv is installed
+* Using coarser resolution to find closest ocean point when particles are seeded globally
+
+2025-10-22 / Release v1.14.4
+----------------------------
+* Fix for vertical mixing for backwards simulations
+* Updates to OpenBerg, RadioNuclides and ChemicalDrift
+* Fixed problem with deactivation of elements outside user-defined area
+* More robust way to detect copernicus dataset_id (thx to Cruz Garcia)
+* ROMS native reader better compatible with CROCO
+* seed_from_geopandas (and seed_from_shapefile) can now take arguments with array length equal to number of elements.
+
+2025-08-28 / Release v1.14.3
+----------------------------
+* Added two new oils to OpenOil / ADIOS: RINGHORNE 2025 and BALDER BLEND 2025
+* Property opendrift.test_data_folder now replaces object method test_data_folder
+* reader_ROMS_native:
+  * Fix for non-CF-compliant Croco files and corresponding GRD-files
+  * Removed gls_tke functionality, now found in new file legacy.py
+* Several updates to OpenBerg module
+* Vertical advection and mixing is disabled by default in OceanDrift (e.g. to prevent sinking of simulated surface drifters), but enabled in some sub-modules.
+* General cleaning of main loop (run) in Basemodel class
+* Environment variables and element properties with attribute ``store_previous=True`` are now available as ``self.environment_previos.<var>`` and ``self.elements_previous.<var>``. This replaces hardcoded solution for lon and lat only.
+* New mechanism to skip environment variables based on conditional given in dictionary required_variables with key *skip_if*
+* Conditional mechanism now also used to decide if previous value of element properties shall be stored
+* reader_oscillating now takes period as timedelta instead of period_seconds as float.
+* Two new (optional) corrections to compensate for vertical velocity (w) from ocean models being relative to fixed z=0, whereas z/depth in OpenDrift is relative to actual surface (zeta possibly nonzero): ``drift:water_column_stretching`` and ``drift:vertical_velocity_correction``. Of minior importance to most (3D) applications.
+* Switching land and ocean colors if inverted shapefile (i.e. lake) is used for landmask. Also fixed indexing bug in algorithm to move land elements to water when using shapefile landmask.
+* Several fixes to ``<reader>.plot()``
+* ``opendrift_gui`` now takes ``--forcing`` as an optional commandline argument, for user defined file with list of forcing datasets
+* Made fix and added test for export_variables. Thx to vincentcasseau for reporting.
+* Extracted ``coastline_crossing`` from stranding algorithm as a separate method, which now also applies to ``previous`` and not only ``stranding``
+
+2025-05-19 / Release v1.14.2
+----------------------------
+* Adding new oil TYRVING 2025
+
+2025-05-19 / Release v1.14.1
+----------------------------
+* Relaxing 3rd party package requirements.
+* Added two new config settings of OceanDrift and submodels (``drift:vertical_advection_at_surface`` and ``drift:vertical_mixing_at_surface``) to control whether vertical advection and mixing shall apply to elements at the very surface (z=0). Both are presently default False for OpenOil, but default True for other modules.
+
+2025-05-15 / Release v1.14.0
+----------------------------
+* opendrift.open() now creates a lazy version of self.results dataset, for faster import of large files (Manuel Aghito and AI).
+* In ``seed_elements``, number can now be a multiple of the number of positions. New parameter number_per_point is new alternative. seed_from_geopandas now supports GeoDataframes with either only points, or only polygons/multipolygons.
+* Animation now plots drifter trajectory as connected to drifter position indicator.
+* Opening up for netCDF>=1.7.2, but .netrc authentication will not work for thredds until libnetcdf 4.9.3 is out.
+* Enabled Python 3.13 in CircleCI, and (temporarily) increased RMS threshold in map generation tests.
+* Seeding from shapefiles is now based on geojson, as new dependency. Removed some redundancy with new method seed_from_geopandas, which is used by both seed_from_shapefile and seed_from_wkt. Shapefiles for seeding can now contain points or polygons/multipolygons, with lines (linearstring) planned for the future.
+* Several Updates to ChemicalDrift and OpenBerg.
+* Added Git to requrements (environment.yml) - for use when building Docker image.
+* Updates to method to move elements seeded on land to closest point in ocean, based on vector landmask (Achim Randelhoff).
+* Fixed bug that final global attributes were not written to file when number of output timesteps were larger than export_buffer_length.
+* Fixed bug in methods sea_floor_depth and sea_surface_height in physics_methods module.
+* New generic method ``pust_run`` that can be implemented in a module to be run after simulation (counterpart to ``prepare_run()``)
+* SHYFEM reader can now also read variables with two dimensions (Angie-P)
+* Fixed problem with reopening netCDF files after export on Windows.
+* Bugfix in interact_with_seafloor: now taking sea_surface_elevation into account. Reported by Robert Hartmann.
+
+2025-03-19 / Release v1.13.1
+----------------------------
+* netCDF readers: Making sure chunk size of time dimension is 1, by reopening dataset if necessary. This may have large impact on reader performance. Also Unifying chunks to avoid problems with mfdatasets with varying chunks.
+* Added hack in ``reader_netCDF_CF_generic`` to deal with corrupted times (first and last) in NCEP winds on thredds
+* OpenOil: allow providing json file or dictionary as ``oil_type`` argument to seed methods. Using keyword oiltype instead of oil_type now raises an error.
+* Moved skillscore methods to independent package TrajAn. TrajAn now installed with pip directly from GitHub, to always use latest.
+* Fixed bug due to mutating list of required variables when applying environmental_mappings.
+* Project: remove poetry, use standard pyproject.toml. Using setuptools backend.
+* Requiring copernicusmarine > 2.0. Specifying 'chunk_size_limit=0' to copernicusmarine.open_dataset() to avoid large performance drop due to default chunking of 50 along time.
+* Internal element property ID is not starting from 0 and not 1. ID corresponds now to trajectory coordinate in ``self.result``
+
 2025-02-11 / Release v1.13.0
 ----------------------------
 * Major internal change: recarray ``self.history`` is replaced with Xarray dataset ``self.result``, with some minor API changes:
@@ -126,7 +224,7 @@ History
 * Using now product_id instead of OPeNDAP URL for CMEMS datasets, and using copernicusmarineclient through new reader_copernicusmarine. username/password can be stored in netrc-file with machine name equal to *copernicusmarine* or *nrt.cmems-du.eu*
 * Model property reguired_profiles_z_range is now replaced with config setting drift:profile_depth, and profiles are retrieved from surface to this depth. profiles_depth is now input parameter to get_environment, and not anymore a property of Environment class. prepare_run must now always call prepare_run of parent class, since profile_depth is copied to object in basemodel.prepare_run
 * get_variables_along_trajectory now also takes depth (z) as input parameter
-* updates to wetting/drying in ROMS reader (Kristin Thyng)
+* updates to wetting/drying in ROMS reader (Kristen Thyng)
 * Fill value in output netCDF files is now set to NaN for floats and -999 for integers
 * Moving basereader.prepare() to variables.prepare(), as the former was overriding structured.prepare() due to multiple inheritance, and thus config *drift:max_speed* was not applied if config setting was made after reader was added. Also increasing *drift:max_speed* of OceanDrift from 1 to 2m/s
 * Leeway model now allows capsizing (and un-capsizing for backwards runs), with given probability and reduction of leeway coefficients when wind exceeds given threshold
@@ -139,8 +237,8 @@ History
 
 2024-04-02 / Release v1.11.2
 ----------------------------
-* Proper handling of sea_surface_height implemented by Kristin Thyng. All subclasses of OceanDrift now have `sea_surface_height` (default 0) as new parameter. z=0 is always sea surface (including sea_surface_height), and seafloor is now where z = -(sea_floor_depth + sea_surface_height)
-* Improvements of ROMS reader by Kristin Thyng:
+* Proper handling of sea_surface_height implemented by Kristen Thyng. All subclasses of OceanDrift now have `sea_surface_height` (default 0) as new parameter. z=0 is always sea surface (including sea_surface_height), and seafloor is now where z = -(sea_floor_depth + sea_surface_height)
+* Improvements of ROMS reader by Kristen Thyng:
 
   * Roppy-method `sdepth` (used by ROMS reader) now accounts for `sea_surface_height` (zeta).
   * Improved handling of rotation of vectors.

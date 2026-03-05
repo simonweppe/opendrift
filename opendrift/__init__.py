@@ -8,10 +8,14 @@ Opendrift module
     >>> import opendrift
 
 """
+import os
 import logging; logger = logging.getLogger(__name__)
 import importlib
 import numpy as np
 from .version import __version__
+
+
+test_data_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'tests', 'test_data')) + os.path.sep
 
 # For automated access to available drift classes, e.g. for GUI
 # Hardcoded for now
@@ -21,7 +25,7 @@ _available_models = \
      'larvalfish.LarvalFish',
      'plastdrift.PlastDrift',
      'shipdrift.ShipDrift',
-     'openberg_old.OpenBergOld']
+     'openberg.OpenBerg']
 
 def get_model_names():
     return [m.split('.')[-1] for m in _available_models]
@@ -42,17 +46,21 @@ def open(filename):
     '''Import netCDF output file as OpenDrift object of correct class'''
 
     import os
+    import xarray as xr
     import pydoc
-    from netCDF4 import Dataset
-    if not os.path.exists(filename):
-        logger.info('File does not exist, trying to retrieve from URL')
-        import urllib
-        try:
-            urllib.urlretrieve(filename, 'opendrift_tmp.nc')
-            filename = 'opendrift_tmp.nc'
-        except:
-            raise ValueError('%s does not exist' % filename)
-    n = Dataset(filename)
+    #from netCDF4 import Dataset
+    if isinstance(filename, xr.Dataset):
+        n = filename
+    else:
+        if not os.path.exists(filename):
+            logger.info('File does not exist, trying to retrieve from URL')
+            import urllib
+            try:
+                urllib.urlretrieve(filename, 'opendrift_tmp.nc')
+                filename = 'opendrift_tmp.nc'
+            except:
+                raise ValueError('%s does not exist' % filename)
+        n = xr.open_dataset(filename)
     try:
         module_name = n.opendrift_module
         class_name = n.opendrift_class
@@ -79,7 +87,12 @@ def open(filename):
     return o
 
 def versions():
-    from importlib.metadata import version
+    def version(package):
+        try:
+            return importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            return "N/A"
+        
     import multiprocessing
     import platform
     import sys

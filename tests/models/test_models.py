@@ -31,11 +31,11 @@ from opendrift.models.oceandrift import OceanDrift
 from opendrift.models.openoil import OpenOil
 from opendrift.models.windblow import WindBlow
 from opendrift.models.shipdrift import ShipDrift
-from opendrift.models.openberg_old import OpenBergOld
 from opendrift.models.larvalfish import LarvalFish
 
 import opendrift
 print(opendrift.versions())
+tdf = opendrift.test_data_folder
 
 class TestModels(unittest.TestCase):
     """Tests for OpenDrift models"""
@@ -64,7 +64,7 @@ class TestModels(unittest.TestCase):
 
     def test_windblow(self):
         o = WindBlow(loglevel=30)
-        reader_arome = reader_netCDF_CF_generic.Reader(o.test_data_folder() + '2Feb2016_Nordic_sigma_3d/AROME_MetCoOp_00_DEF_20160202_subset.nc')
+        reader_arome = reader_netCDF_CF_generic.Reader(tdf + '2Feb2016_Nordic_sigma_3d/AROME_MetCoOp_00_DEF_20160202_subset.nc')
         o.add_reader([reader_arome])
         lat = 67.711251; lon = 13.556971  # Lofoten
         o.seed_elements(lon, lat, radius=5000, number=1000,
@@ -75,7 +75,7 @@ class TestModels(unittest.TestCase):
     def test_shipdrift(self):
         """Sintef case study"""
         s = ShipDrift(loglevel=50)
-        s.set_config('drift:horizontal_diffusivity', 0)
+        s.set_config('environment:constant:horizontal_diffusivity', 0)
         c = reader_constant.Reader({
             'sea_surface_wave_significant_height': 5,
             'sea_surface_wave_mean_period_from_variance_spectral_density_second_frequency_moment': 11,
@@ -123,7 +123,7 @@ class TestModels(unittest.TestCase):
             'x_sea_water_velocity': 0.05656854249,
             'y_sea_water_velocity': -0.05656854249})
         s.set_config('environment:fallback:land_binary_mask', 0)
-        s.set_config('drift:horizontal_diffusivity', 0)
+        s.set_config('environment:constant:horizontal_diffusivity', 0)
         s.add_reader(c)
         s.seed_elements(lon=2.254, lat=59.873,
                         time=datetime.now(), number=1,
@@ -148,31 +148,6 @@ class TestModels(unittest.TestCase):
                             o.elements.lon,
                           [5.010873, 5.016866, 5.009735]))
         self.assertAlmostEqual(o.elements.lat[0], o.elements.lat[2], 3)
-
-    def test_openberg(self):
-        """Check if weighting array is set correctly
-        and if model returns expected positions"""
-        o = OpenBergOld()
-        o.set_config('drift:current_uncertainty', 0)
-        o.set_config('drift:wind_uncertainty', 0)
-
-        reader_current = reader_netCDF_CF_generic.Reader(o.test_data_folder() +
-                '14Jan2016_NorKyst_z_3d/NorKyst-800m_ZDEPTHS_his_00_3Dsubset.nc')
-
-        reader_landmask = reader_global_landmask.Reader()
-
-        o.add_reader([reader_current,reader_landmask])
-        o.seed_elements(4.,62.,time=reader_current.start_time)
-        o.run(steps=1)
-
-        arr=[0.16072658,0.16466097,0.17384121,0.17325179,0.1715925,0.15592695]
-
-        for indx in range(len(arr)):
-            self.assertAlmostEqual(o.uw_weighting[indx],arr[indx],7)
-
-        self.assertAlmostEqual(o.result.lon[0][1].values, 3.991, 3)
-        self.assertAlmostEqual(o.result.lat[0][1].values, 62.011, 3)
-
 
 
     def test_larvalfish(self):

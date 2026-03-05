@@ -17,7 +17,7 @@ from opendrift.models.basemodel import Mode
 
 def datetime_from_datetime64(dt64):
     t = (dt64 - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
-    return datetime.utcfromtimestamp(float(t))
+    return datetime.fromtimestamp(float(t))
 
 def init(self, filename):
 
@@ -47,12 +47,17 @@ def write_buffer(self):
         self._netCDF_encoding = encoding
         return
 
+    if self.result.sizes['time'] == 0:
+        logger.debug('No new time steps to write')
+        return
+
     self.outfile = Dataset(self.outfile_name, 'a')  # Re-open file at each write
     numtimes = self.outfile['time'].shape[0]
 
     for varname in self.result.data_vars:
-        var = self.outfile.variables[varname]
-        var[:, numtimes:numtimes + self.result.sizes['time']] = self.result[varname]
+        if 'time' in self.result[varname].dims:
+            var = self.outfile.variables[varname]
+            var[:, numtimes:numtimes + self.result.sizes['time']] = self.result[varname].fillna(var._FillValue)
     self.outfile.variables['time'][numtimes:numtimes + self.result.sizes['time']] = \
         date2num(pd.to_datetime(self.result.time).to_pydatetime(),
                  self.outfile['time'].units, self.outfile['time'].calendar)
@@ -70,7 +75,9 @@ def close(self):
         for atn, atv in self.result[var].attrs.items():
             if atn != '_FillValue':
                 self.outfile[var].setncattr(atn, atv)
-
+    for atn, atv in self.result.attrs.items():  # Updating global attributes
+        self.outfile.setncattr(atn, atv)
+    self.outfile.sync()  # Flush from memory to disk
     self.outfile.close()  # Finally close file
     logger.debug('Closed netCDF-file')
 
@@ -92,15 +99,19 @@ def close(self):
         else:
             self._netCDF_encoding[varname] = compression
     self.result.to_netcdf(self.outfile_name + '_tmp', unlimited_dims={}, encoding=self._netCDF_encoding)
+    self.result.close()  # Closing so that tmp-file can be renamed, thereafter opening lazily again
     shutil.move(self.outfile_name + '_tmp', self.outfile_name)  # Replace original
+    self.result = xr.open_dataset(self.outfile_name)
 
 def import_file(self, filename):
-    """Create OpenDrift object from imported file.
+    """Create OpenDrift object from imported file or from Xarray Dataset.
     """
 
-    logger.debug('Importing from ' + filename)
-
-    self.result = xr.open_dataset(filename)
+    if isinstance(filename, xr.Dataset):
+        self.result = filename
+    else:
+        logger.debug('Importing from ' + filename)
+        self.result = xr.open_dataset(filename)
 
     self.steps_output = self.result.sizes['time']
     self.start_time = datetime_from_datetime64(self.result.time[0])
@@ -113,7 +124,15 @@ def import_file(self, filename):
     kwargs = {}
     for var in self.result.data_vars:
         if var in self.ElementType.variables:
-            kwargs[var] = self.result[var][np.arange(num_elements), index_of_last]
+            last_vals_var = xr.apply_ufunc(
+                lambda arr, i: arr[i],
+                self.result[var], index_of_last,
+                input_core_dims=[['time'], []],
+                output_core_dims=[[]],
+                vectorize=True, dask='parallelized',
+                output_dtypes=[self.result[var].dtype]
+            )
+            kwargs[var] = last_vals_var.compute()
     kwargs['ID'] = np.arange(num_elements)
     self.elements = self.ElementType(**kwargs)
     self.elements_deactivated = self.ElementType()

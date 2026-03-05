@@ -115,6 +115,7 @@ class Reader(BaseReader, StructuredReader):
             'gls': 'turbulent_generic_length_scale',
             'tke': 'turbulent_kinetic_energy',
             'AKs': 'ocean_vertical_diffusivity',
+            'ln_AKs': 'ocean_vertical_diffusivity',
             'sustr': 'surface_downward_x_stress',
             'svstr': 'surface_downward_y_stress',
             'tair': 'air_temperature',
@@ -137,47 +138,13 @@ class Reader(BaseReader, StructuredReader):
             -2000, -2500, -3000, -3500, -4000, -4500, -5000, -5500, -6000,
             -6500, -7000, -7500, -8000])
 
-        gls_param = ['gls_cmu0', 'gls_p', 'gls_m', 'gls_n']
-        
         self.name = name or 'roms native'
-
-        # TODO: the below section is to be removed after some period with
-        # testing of new common opener method: open_dataset_opendrift
-        #if isinstance(filename, xr.Dataset):
-        #    self.Dataset = filename
-        #else:
-
-        #    filestr = str(filename)
-
-        #    try:
-        #        # Open file, check that everything is ok
-        #        logger.info('Opening dataset: ' + filestr)
-        #        if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
-        #            logger.info('Opening files with MFDataset')
-        #            def drop_non_essential_vars_pop(ds):
-        #                dropvars = [v for v in ds.variables if v not in
-        #                            list(self.ROMS_variable_mapping.keys()) + gls_param +
-        #                            ['ocean_time', 'time', 'bulk_time', 's_rho',
-        #                             'Cs_r', 'hc', 'angle', 'Vtransform']
-        #                            and v[0:3] not in ['lon', 'lat', 'mas']]
-        #                logger.debug('Dropping variables: %s' % dropvars)
-        #                ds = ds.drop_vars(dropvars)
-        #                return ds
-        #            self.Dataset = xr.open_mfdataset(filename,
-        #                chunks={'ocean_time': 1}, compat='override', decode_times=False,
-        #                preprocess=drop_non_essential_vars_pop,
-        #                data_vars='minimal', coords='minimal')
-        #        else:
-        #            logger.info('Opening file with Dataset')
-        #            self.Dataset = xr.open_dataset(filename, decode_times=False)
-        #    except Exception as e:
-        #       raise ValueError(e)
 
         def drop_non_essential_vars_pop(ds):
             dropvars = [v for v in ds.variables if v not in
-                        list(self.ROMS_variable_mapping.keys()) + gls_param +
+                        list(self.ROMS_variable_mapping.keys()) +
                         ['ocean_time', 'time', 'bulk_time', 's_rho',
-                         'Cs_r', 'hc', 'angle', 'Vtransform']
+                         'Cs_r', 'Cs_rho', 'hc', 'angle', 'Vtransform', 'Vstretching']
                         and v[0:3] not in ['lon', 'lat', 'mas']]
             logger.debug('Dropping variables: %s' % dropvars)
             ds = ds.drop_vars(dropvars)
@@ -192,7 +159,22 @@ class Reader(BaseReader, StructuredReader):
 
         if gridfile is not None:  # Merging gridfile dataset with main dataset
             gf = xr.open_dataset(gridfile)
-            self.Dataset = xr.merge([self.Dataset, gf])
+            for var in gf:
+                if var in self.Dataset:
+                    logger.warning(f'Skipping duplicate variable {var} from grdfile')
+                    gf = gf.drop_vars(var)
+            self.Dataset = xr.merge([self.Dataset, gf], compat='override')
+
+        for var in self.Dataset:  # Check for mis-named Croco-dimensions
+            dims = self.Dataset[var].dims
+            if 'eta_rho' in dims and 'xi_u' in dims:
+                logger.warning(f'Wrongly named dimensions of {var} in Croco output: ' +
+                               'Renaming dimensions (eta_rho, xi_u) to (eta_u, xi_u)')
+                self.Dataset[var] = self.Dataset[var].rename({'eta_rho': 'eta_u'})
+            elif 'eta_v' in dims and 'xi_rho' in dims:
+                logger.warning(f'Wrongly named dimensions of {var} in Croco output: ' +
+                               'Renaming dimensions (eta_v, xi_rho) to (eta_v, xi_v)')
+                self.Dataset[var] = self.Dataset[var].rename({'xi_rho': 'xi_v'})
 
         if 'Vtransform' in self.Dataset.variables:
             self.Vtransform = self.Dataset.variables['Vtransform'].data  # scalar
@@ -200,6 +182,13 @@ class Reader(BaseReader, StructuredReader):
             logger.warning('Vtransform not found, using 1')
             self.Vtransform = 1
         self.Vtransform = np.asarray(self.Vtransform)
+
+        if 'Vstretching' in self.Dataset.variables:
+            self.Vstretching = self.Dataset.variables['Vstretching'].data  # scalar
+        else:
+            logger.warning('Vstretching not found, using 1')
+            self.Vstretching = 1
+        self.Vstretching = np.asarray(self.Vstretching)
 
         if 's_rho' not in self.Dataset.variables:
             dimensions = 2
@@ -219,17 +208,31 @@ class Reader(BaseReader, StructuredReader):
                 self.sigma = (np.arange(num_sigma)+.5-num_sigma)/num_sigma
 
             # Read sigma-coordinate transform parameters
-            try:
-                self.Dataset.variables['Cs_r'].set_auto_mask(False)
-            except:
-                pass
-            self.Cs_r = self.Dataset.variables['Cs_r'][:]
+            if 'Cs_r' in self.Dataset.variables:
+                csr = 'Cs_r'  # ROMS
+            elif 'Cs_rho' in self.Dataset.variables:
+                csr = 'Cs_rho'  # CROCO
+            else:
+                csr = None
+
+            if csr is not None:
+                try:
+                    self.Dataset.variables[csr].set_auto_mask(False)
+                except:
+                    pass
+                self.Cs_r = self.Dataset.variables[csr][:]
+
             try:
                 self.hc = self.Dataset.variables['hc'][:]
             except:
-                self.hc = self.Dataset.variables['hc'].data  # scalar
-            else:
-                self.hc = None
+                try:
+                    self.hc = self.Dataset.variables['hc'].data  # scalar
+                except:
+                    self.hc = None
+            try:
+                self.hc = self.hc.values
+            except:
+                pass
 
             self.num_layers = len(self.sigma)
         else:
@@ -256,16 +259,6 @@ class Reader(BaseReader, StructuredReader):
         for var in list(self.ROMS_variable_mapping):  # Remove unused variables
             if var not in self.Dataset.variables:
                 del self.ROMS_variable_mapping[var]
-
-        try:  # Check for GLS parameters (diffusivity)
-            self.gls_parameters = {}
-            for gls_par in gls_param:
-                self.gls_parameters[gls_par] = \
-                    self.Dataset.variables[gls_par][()]
-            logger.info('Read GLS parameters from file.')
-        except Exception as e:
-            logger.info(e)
-            logger.info('Did not find complete set of GLS parameters')
 
         # Get time coverage
         ocean_time = None
@@ -524,7 +517,8 @@ class Reader(BaseReader, StructuredReader):
                 Htot = self.sea_floor_depth_below_sea_level
                 zeta = self.zeta[indxTime]
                 self.z_rho_tot = depth.sdepth(Htot, zeta, self.hc, self.Cs_r,
-                                              Vtransform=self.Vtransform)
+                                              Vtransform=self.Vtransform,
+					      Vstretching=self.Vstretching)
                 # z_rho is positive relative to mean sea level but z is
                 # 0 at the surface.
                 # Transform z_rho to match convention of z.
@@ -533,7 +527,8 @@ class Reader(BaseReader, StructuredReader):
             H = self.sea_floor_depth_below_sea_level[indy, indx]
             zeta = self.zeta[itxy]
             z_rho = depth.sdepth(H, zeta, self.hc, self.Cs_r,
-                                 Vtransform=self.Vtransform)
+                                 Vtransform=self.Vtransform,
+				 Vstretching=self.Vstretching)
 
             # z_rho is positive relative to mean sea level but z is
             # 0 at the surface.
@@ -638,13 +633,11 @@ class Reader(BaseReader, StructuredReader):
                             logger.debug('Calculating sigma2z-coefficients for whole domain')
                             starttime = datetime.now()
                             dummyvar = np.ones((O, M, N))
-                            dummy, self.s2z_total = depth.multi_zslice(dummyvar, self.z_rho_tot, self.zlevels)
+                            dummy, self.s2z_A, self.s2z_C, self.s2z_I, self.s2z_kmax = depth.multi_zslice(dummyvar, self.z_rho_tot, self.zlevels)
                             # Store arrays/coefficients
-                            self.s2z_A = self.s2z_total[0].reshape(len(self.zlevels), M, N)
-                            self.s2z_C = self.s2z_total[1].reshape(len(self.zlevels), M, N)
-                            #self.s2z_I = self.s2z_total[2].reshape(M, N)
-                            self.s2z_kmax = self.s2z_total[3]
-                            del self.s2z_total  # Free memory
+                            self.s2z_A = self.s2z_A.reshape(len(self.zlevels), M, N)
+                            self.s2z_C = self.s2z_C.reshape(len(self.zlevels), M, N)
+                            #self.s2z_I = self.s2z_I.reshape(M, N)
                             logger.info('Time: ' + str(datetime.now() - starttime))
                         if 'A' not in locals():
                             logger.debug('Re-using sigma2z-coefficients')
@@ -677,9 +670,8 @@ class Reader(BaseReader, StructuredReader):
                             kmax = len(zle)  # Must be checked. Or number of sigma-layers?
                     if 'A' not in locals():
                         logger.debug('Calculating new sigma2z-coefficients')
-                        variables[par], s2z = depth.multi_zslice(
+                        variables[par], A,C,I,kmax = depth.multi_zslice(
                             variables[par], z_rho, variables['z'])
-                        A,C,I,kmax = s2z
                         # Reshaping to compare with subset of full array
                         #zle = np.arange(zi1, zi2)
                         #A = A.reshape(len(zle), len(indx), len(indy))
@@ -789,6 +781,9 @@ class Reader(BaseReader, StructuredReader):
                         variables['y_wind'], rad)
                 logger.debug('Rotated x_wind and y_wind')
 
+        if 'ocean_vertical_diffusivity' in variables.keys() and 'AKs' not in self.Dataset.variables:
+            variables['ocean_vertical_diffusivity'] = np.exp(variables['ocean_vertical_diffusivity'])
+            logger.info("Using AKs from ln_AKs.")
         # Masking NaN
         for var in requested_variables:
             variables[var] = np.ma.masked_invalid(variables[var])

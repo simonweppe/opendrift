@@ -37,5 +37,5 @@ dependencies:
   - python-dotenv
   - pip
   - git
-  # - pip:
-  #   - git+http://github.com/OpenDrift/trajan.git
+  - pip:
+    - trajan @ git+http://github.com/OpenDrift/trajan.git

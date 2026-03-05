@@ -15,7 +15,8 @@ time = datetime.now()
 # No motion is needed for this test
 o.set_config('environment:constant', {k: 0 for k in
              ['x_wind', 'y_wind', 'x_sea_water_velocity', 'y_sea_water_velocity']})
-o.set_config('drift', {'current_uncertainty': 0, 'wind_uncertainty': 0, 'horizontal_diffusivity': 10})
+o.set_config('environment:constant:horizontal_diffusivity', 10)
+o.set_config('drift', {'current_uncertainty': 0, 'wind_uncertainty': 0})
 
 #%%
 # Seeding some particles
