@@ -288,7 +288,16 @@ class Reader(reader_netCDF_CF_generic.Reader):
                 # should not happen for now
                 import pdb;pdb.set_trace()
         ####################################################################################
-   
+        # print(env)
+        if False: # run some check plots
+            import matplotlib.pyplot as plt;plt.ion();plt.show()
+            fig,ax=plt.subplots()
+            self.Dataset.u_re.isel(con=0).plot(ax=ax)
+            plt.plot(reader_x,reader_y,'k.')
+            plt.plot(reader_x[np.isnan(env[vv].data.squeeze())],reader_y[np.isnan(env[vv].data.squeeze())],'r+')
+            plt.scatter(reader_x,reader_y,c=env[vv])
+            import pdb;pdb.set_trace()
+
         # ####################################################################################
         # 
         # if 'x_sea_water_velocity' in variables :
