@@ -22,8 +22,9 @@
 # using the python package oceantide (https://github.com/oceanum/oceantide/)
 # 
 # 
-# To test : interpolation of constituents to particle position rather
-# than generating full grid then interpolating from that 
+# This version does interpolation to particle positions on the fly 
+# rather than passing full fields via get_variables()
+# >> faster
 # 
 # Author: Simon Weppe. Calypso Science New Zealand
 ##########################################################################
