@@ -80,7 +80,8 @@ class Reader(BaseReader,UnstructuredReader):
             'v': 'y_sea_water_velocity',
             'dep': 'sea_floor_depth_below_sea_level',
             'h' : 'sea_surface_height',
-            'dep': 'land_binary_mask',}
+            'dep': 'land_binary_mask',
+            }
 
         self.return_block = True
 
@@ -563,7 +564,7 @@ class Reader(BaseReader,UnstructuredReader):
         Original function : Return nearest times before and after the requested time.
 
         Here : we return the input time as nearest time as tide can be generated for any time
-        Note this will not lead to interpolation in _get_variables_interpolated_()
+        Note this will not lead to time interpolation in _get_variables_interpolated_()
         as the "right on time" case will be identified
 
         Returns:
@@ -1109,13 +1110,13 @@ class ReaderBlockUnstruct():
                     ##############################
                     # PLOT CHECKS
                     if False:
-                        import matplotlib.pyplot as plt
+                        import matplotlib.pyplot as plt;plt.ion();plt.show()
                         fig = plt.figure()
                         ax = fig.add_subplot(111, projection='3d')
                         ax.scatter(self.x_3d[i[0]].data.tolist(),self.y_3d[i[0]].data.tolist(),self.z_3d[i[0]].data.tolist(),c='r', marker='o')
                         ax.scatter(x[0:1],y[0:1],z[0:1],c='g', marker='o')
-                        plt.ion()
-                        plt.show()
+                        
+                        
                     ##############################
                 else:
                     print('check data')
