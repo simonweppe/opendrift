@@ -115,7 +115,6 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
         #Stokes drift probably not relevant here, expect maybe for slow-settling, surface sediment
         # keeping here as place holder
         self._set_config_default('drift:stokes_drift',False)
-
         # Settling on seafloor : if no resuspension (default) : deactivate settled particles 
         #                        if resuspension is on, this will be set to 'lift_to_seafloor'
         #                        other options : ['none', 'lift_to_seafloor', 'deactivate', 'previous']
@@ -225,8 +224,9 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
         self.stokes_drift()
         
         # Turbulent Mixing
+        self.update_terminal_velocity()
+
         if self.get_config('drift:vertical_mixing') is True:
-            self.update_terminal_velocity()  
             self.vertical_mixing()
         else:  # Buoyancy
             self.update_terminal_velocity() 
@@ -279,10 +279,9 @@ class SedimentDrift3D(OceanDrift): # based on OceanDrift base class
         """Sub method of vertical_mixing, determines settling"""
         # Elements at or below seafloor are settled, by setting self.elements.moving to 0.
         # These elements will not move until possible later resuspension.
-
-        sea_floor_depth =  self.sea_floor_depth()
-        below = np.where(self.elements.z < -sea_floor_depth)[0]
-        self.elements.z[below] = -sea_floor_depth[below]
+        # sea_floor_depth =  self.environment['sea_floor_depth_below_sea_level'] #self.sea_floor_depth()
+        # below = np.where(self.elements.z < seafloor_depth)[0]
+        # self.elements.z[below] = seafloor_depth[below]
         settling = np.logical_and(self.elements.z <= seafloor_depth, self.elements.moving==1)
         if np.sum(settling) > 0:
             logger.debug('Settling %s elements at seafloor' % np.sum(settling))
