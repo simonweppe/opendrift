@@ -1,0 +1,11 @@
+# See https://opendrift.github.io for usage
+FROM opendrift/opendrift:latest
+
+USER root
+RUN cp -r /tmp/code /tmp/code_official && \
+    rm -rf /tmp/code
+# clone my repo and install
+USER mambauser
+RUN git clone https://github.com/simonweppe/opendrift.git /tmp/code && \
+    cd /tmp/code && \
+    pip install -e .
