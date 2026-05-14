@@ -141,7 +141,6 @@ def plot_land(ax, lonmin, latmin, lonmax, latmax, fast,
             dy = (ymax-ymin) / maxn
             dx = max(roaring.dx, dx)
             dy = max(roaring.dy, dy)
-
             x = np.arange(xmin, xmax, dx)
             y = np.arange(ymin, ymax, dy)
             yy, xx = np.meshgrid(y, x)

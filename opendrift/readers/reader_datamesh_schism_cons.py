@@ -52,7 +52,7 @@ schism_mapping = {
     'v': 'y_sea_water_velocity',
     'dep': 'sea_floor_depth_below_sea_level',
     'h' : 'sea_surface_height',
-    'dep': 'land_binary_mask',
+    # 'dep': 'land_binary_mask',
     }
 # do an inverted version
 standard_name_mapping_datamesh_invert = {v: k for k, v in schism_mapping.items()}
@@ -257,7 +257,7 @@ class Reader(BaseReader,UnstructuredReader):
 
         # by default we activate the derivation of land_binary_mask from 'sea_floor_depth_below_sea_level
         # https://github.com/OpenDrift/opendrift/blob/master/opendrift/readers/basereader/variables.py#L443
-        self.activate_environment_mapping('land_binary_mask_from_ocean_depth')
+        # self.activate_environment_mapping('land_binary_mask_from_ocean_depth')
 
         # Find all variables having standard_name
         self.variable_mapping = {}
@@ -270,7 +270,7 @@ class Reader(BaseReader,UnstructuredReader):
 
             if var_name in schism_mapping:                           
                 self.variable_mapping[schism_mapping[var_name]] = str(var_name) 
-                   
+
         self.variables = list(self.variable_mapping.keys())
 
         self.xmin = self.x.min()
@@ -467,7 +467,6 @@ class Reader(BaseReader,UnstructuredReader):
         env = {}
         # the <env> variable to return is a dict such as
         # env =  {'sea_floor_depth_below_sea_level' : np.array(), ...}
-
         for vv in variables:
             if vv in ['x_sea_water_velocity','y_sea_water_velocity','sea_surface_height']:
                 tide_pred = self.dataset.tide.predict(times=time).squeeze() # we squeeze to get rid of dimension time

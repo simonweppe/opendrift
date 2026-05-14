@@ -26,7 +26,7 @@ docker tag opendrift:latest simonwp/opendrift:v.gb.0.0
 ```
 
 ```
-docker login 
+#docker login 
 docker login simon_wp
 docker push simonwp/opendrift:v.gb.0.0
 docker push simonwp/opendrift:v.ondemand.0.0

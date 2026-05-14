@@ -451,30 +451,108 @@ class Reader(BaseReader,UnstructuredReader):
         self.var_block_before = {}  # Data for last timestep before present
         self.var_block_after = {}   # Data for first timestep after present
 
+    def _build_boundary_polygon_(self, x, y):
+        """
+        Build a polygon of the boundary of the mesh.
+
+        Arguments:
+            :param x: Array of node x position, lenght N
+            :param y: Array of node y position, length N
+
+        Returns:
+            A `shapely.prepareped.prep` `shapely.Polygon`.
+
+            The boundary of the mesh, ideally including holes in the mesh.
+
+        Algorithms:
+
+        .. note::
+
+            Try this alogrithm: https://stackoverflow.com/a/14109211/377927
+
+            Boundary edges (line between two nodes) are only referenced by a single
+            triangle.
+
+            1. Find a starting edge segment: [v_start, v_next] (v is vertex or node)
+
+            2. Find another _unvisited_ edge segment [v_i, v_j] that has
+               either v_i = v_next or v_j = v_next and add the one not equal to v_next to the polygon.
+
+            3. Reset v_next to the newly added point. Mark edge as visited.
+
+            4. Continue untill we reach v_start.
+
+            The polygon has a rotation, but this should not matter for our purpose
+            of checking the bounds.
+
+            Note: In order to find holes in the polygon all points must be scanned.
+
+        Approximate using the convex hull:
+
+        An alternative simple approximation is to use the convex hull of the
+        points, but this will miss points along the boundary which form a
+        wedge in the boundary (as well as holes in the mesh).
+
+        Holes in the mesh will often be covered by the landmask anyway, so they
+        will usually not be a problem.
+
+        """
+        from shapely.geometry import Polygon
+        from shapely.prepared import prep
+        from scipy.spatial import ConvexHull
+        if 'SCHISM_hgrid_face_nodes' in self.dataset.variables:
+            try:
+                face = self.dataset['SCHISM_hgrid_face_nodes'].isel(time=0)[:,0:3]-1
+            except:
+                face = self.dataset['SCHISM_hgrid_face_nodes'][:,0:3]-1
+            face = face.load()
+            face = face.astype(int)
+            use_true_outline = (x.shape[0] == face.max()+1).values
+        else:
+            use_true_outline = False
+
+        if not use_true_outline:
+            P = np.vstack((x, y)).T
+            hull = ConvexHull(P)
+            boundary1 = P[hull.vertices, :]
+            boundary = prep(Polygon(boundary1))
+        else:
+            #  Now try with actual polygon
+            from shapely.geometry import Polygon, MultiPolygon
+            from shapely.ops import unary_union, polygonize
+            # import numpy as np
+            # For an unstructured mesh like SCHISM, the true boundary (not just convex hull) is edges that appear in only one triangle:
+            # Find boundary edges (edges belonging to only one triangle)
+            edges = {}
+            for tri in face.values:
+                for i in range(3):
+                    edge = tuple(sorted([tri[i], tri[(i+1) % 3]]))
+                    edges[edge] = edges.get(edge, 0) + 1
+            
+            # Boundary edges appear only once
+            boundary_edges = [e for e, count in edges.items() if count == 1]
+
+            # Build shapely linestrings and polygonize
+            from shapely.geometry import LineString
+            lines = [LineString([(x[e[0]], y[e[0]]),
+                                (x[e[1]], y[e[1]])]) for e in boundary_edges]
+            boundary_polygon = list(polygonize(unary_union(lines)))[0]
+
+            boundary = prep(Polygon(boundary_polygon))
+            
+            # import pdb;pdb.set_trace()
+            # import matplotlib.pyplot as plt;plt.ion();plt.show()
+            # from shapely.plotting import plot_polygon
+            # plot_polygon(Polygon(boundary1))
+            # plot_polygon(boundary_polygon)
+        return boundary
+
+
     def build_ckdtree(self,x,y):
         # This is done using cython-based cKDTree from scipy for quick nearest-neighbor search
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html
         # self.reader_KDtree = cKDTree(np.vstack((self.lon,self.lat)).T) 
         return cKDTree(np.vstack((x,y)).T) 
-
-    def build_boundary_path(self,x,y):
-        from scipy.spatial import ConvexHull # convex hull of grid points
-        from matplotlib.path import Path # convex hull of grid points
-        # 
-        # Build a polygon of the boundary of the mesh, for in-grid checks
-        # 
-        # simple approximation : use convex hull of mesh nodes. This will correctly include the open boundary
-        # (semi-circular) but it will miss the details of the shorelines. This is usually not a problem
-        # since the shoreline details will be covered by the landmask.
-        # 
-        # **** Depreciated **** 
-        # >> Now using prepared geometry rather than Matplotlib Path (as in unstructured.py)
-        # https://sparkgeo.com/blog/using-prepared-geometries-in-shapely/
-
-        hull_obj = ConvexHull(np.vstack([x,y]).T)
-        hull_path = Path(np.vstack([x[hull_obj.vertices],y[hull_obj.vertices]]).T)  # Matplotlib Path object
-        hull = np.vstack([x[hull_obj.vertices],y[hull_obj.vertices]]).T
-        return hull_path # Matplotlib Path object
   
     def get_variables(self, requested_variables, time=None,
                       x=None, y=None, z=None, block=False):
@@ -1549,7 +1627,6 @@ class ReaderBlockUnstruct():
 
     def covers_positions(self, x, y, z=None):
         '''Check if given positions are covered by this reader block.'''
-        
         indices = np.where((x >= self.x.min()) & (x <= self.x.max()) &
                            (y >= self.y.min()) & (y <= self.y.max()))[0]
 
@@ -1563,6 +1640,8 @@ class ReaderBlockUnstruct():
             (self.x.min(),self.y.max()),\
             (self.x.min(),self.y.min())])
             plt.plot(box[:,0],box[:,1],'k--')
+            plt.plot(self.x,self.y,'k.')
+            
             plt.title('Increase buffer distance around particle cloud')
             import pdb;pdb.set_trace()
             plt.close()
