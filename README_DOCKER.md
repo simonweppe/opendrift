@@ -7,14 +7,18 @@ git clone https://github.com/OpenDrift/opendrift.git # this will get the latest
 cd opendrift/ # where Dockerfile lives
 docker build -t simonwp/opendrift:latest .
 ```
-
 ## or a specific tag
 
 ```
 git clone --branch v.gb.0.0 --single-branch --depth=1 https://github.com/simonweppe/opendrift.git &&\
 cd opendrift/
 docker build -t simonwp/opendrift:v.gb.0.0 .
-docker build -t simonwp/opendrift:v.ondemand.0.0 .  --no-cache (add nocache option if needed)
+docker build
+
+git clone --branch v1.14.8.2 --single-branch --depth=1 https://github.com/simonweppe/opendrift.git &&\
+cd opendrift/
+docker build -f Dockerfile_from_official -t simonwp/opendrift:v1.14.8.2 .
+
 
 ```
 
@@ -30,6 +34,8 @@ docker tag opendrift:latest simonwp/opendrift:v.gb.0.0
 docker login simon_wp
 docker push simonwp/opendrift:v.gb.0.0
 docker push simonwp/opendrift:v.ondemand.0.0
+docker push simonwp/opendrift:v1.14.8.2
+
 ```
 
 Docker becomes available here : 
