@@ -1699,6 +1699,171 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
 
         self.schedule_elements(elements, time)
 
+
+    def _datetime64_to_datetime(self,dt64):
+        """Convert a numpy datetime64 scalar to a Python datetime (UTC-naive)."""
+        ts = (dt64 - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
+        return datetime.utcfromtimestamp(float(ts))
+
+    def seed_hotstart(self,
+                    filename,
+                    time=None,
+                    time_index=None,
+                    new_seed_time=None,
+                    only_active=True,
+                    skip_vars=None,
+                    **kwargs):
+        """Seed particles from positions saved in a previous OpenDrift simulation.
+
+        Reads particle state from a netCDF output file (CF-trajectory convention)
+        at a chosen time step and re-seeds them into model ``o`` using
+        ``o.seed_elements()``.
+
+        Parameters
+        ----------
+        o : OpenDrift model instance
+            The model that will receive the hotstarted particles.
+        filename : str or xarray.Dataset
+            Path to the netCDF file produced by a previous OpenDrift run,
+            or an already-opened ``xarray.Dataset``.
+        time : datetime or numpy.datetime64, optional
+            Simulation time from which to extract particle positions.  The
+            time step whose timestamp is closest to *time* is selected.
+            If both *time* and *time_index* are ``None``, the last time step
+            is used.
+        time_index : int, optional
+            Integer index of the time step to use.  Takes precedence over
+            *time*.
+        new_seed_time : datetime, optional
+            Seed time to use in the new simulation.  Defaults to the
+            timestamp of the selected time step in the previous file.
+        only_active : bool, optional
+            If ``True`` (default), only particles whose ``status == 0``
+            (active) at the selected time are re-seeded.  Set to ``False``
+            to also include deactivated particles (e.g. stranded particles
+            you want to re-release).
+        skip_vars : set of str, optional
+            Names of element variables to *not* forward to ``seed_elements()``.
+            Defaults to ``{'ID', 'status', 'moving', 'age_seconds', 'trajectory'}``.
+            You can extend the default set, e.g.::
+                seed_hotstart(o, f, skip_vars=_DEFAULT_SKIP_VARS | {'origin_marker'})
+        **kwargs
+            Additional keyword arguments forwarded to ``o.seed_elements()``.
+            These take precedence over values read from the file (useful for
+            overriding individual properties).
+
+        Returns
+        -------
+        n_seeded : int
+            Number of particles seeded.
+        """
+        only_active = True # cant see any way to seed stranded/outside etc..for now
+
+        # Variables that are managed internally by OpenDrift and should not be
+        # forwarded to seed_elements() during a hotstart.  Users may override
+        # this set via the ``skip_vars`` argument.
+        _DEFAULT_SKIP_VARS = frozenset({
+            'ID',
+            'status',
+            'moving',
+            'age_seconds',
+            'trajectory',
+        })
+
+        if skip_vars is None:
+            skip_vars = _DEFAULT_SKIP_VARS
+
+        # --- Open dataset ---
+        close_ds = False
+        if isinstance(filename, xr.Dataset):
+            ds = filename
+        else:
+            logger.info(f'seed_hotstart: opening {filename}')
+            ds = xr.open_dataset(filename)
+            close_ds = True
+
+        try:
+            # --- Resolve time index ---
+            if time_index is not None:
+                tidx = int(time_index)
+                logger.info(f'seed_hotstart: using time_index={tidx} '
+                            f'({ds.time.values[tidx]})')
+            elif time is not None:
+                if isinstance(time, datetime):
+                    time = np.datetime64(time)
+                times = ds.time.values
+                tidx = int(np.argmin(np.abs(times - time)))
+                logger.info(f'seed_hotstart: requested {time}, '
+                            f'closest time step = {ds.time.values[tidx]} (index {tidx})')
+            else:
+                tidx = len(ds.time) - 1
+                logger.info(f'seed_hotstart: no time specified, '
+                            f'using last time step ({ds.time.values[tidx]}, index {tidx})')
+
+            # --- Extract positions ---
+            lon_all = ds['lon'].isel(time=tidx).values.astype(np.float64)
+            lat_all = ds['lat'].isel(time=tidx).values.astype(np.float64)
+
+            # Active mask: non-NaN position AND (optionally) status == 0
+            active_mask = np.isfinite(lon_all) & np.isfinite(lat_all)
+            if only_active and 'status' in ds.data_vars:
+                status_vals = ds['status'].isel(time=tidx).values
+                active_mask = active_mask & (status_vals == 0)
+
+            n_active = int(np.sum(active_mask))
+            logger.info(f'seed_hotstart: {n_active} particles selected '
+                        f'(only_active={only_active})')
+
+            if n_active == 0:
+                logger.warning('seed_hotstart: no particles found at selected time step; '
+                            'nothing seeded')
+                return 0
+
+            lon = lon_all[active_mask]
+            lat = lat_all[active_mask]
+            
+            # --- Extract element properties from the file ---
+            # z is handled first because it may be 'seafloor' in config but we
+            # want the actual saved depth for a hotstart.
+            file_props = {}
+            if 'z' in ds.data_vars:
+                z_vals = ds['z'].isel(time=tidx).values[active_mask]
+                file_props['z'] = z_vals
+
+            # All other variables that exist in the current model's ElementType
+            for var in ds.data_vars:
+                print(var)
+                if var in ('lon', 'lat', 'z', 'time', 'trajectory'):
+                    continue
+                if var in skip_vars:
+                    continue
+                if var not in self.ElementType.variables:
+                    continue
+                var_vals = ds[var].isel(time=tidx).values
+                if var_vals.ndim != 1 or len(var_vals) != ds.sizes['trajectory']:
+                    logger.debug(f'seed_hotstart: skipping variable {var} '
+                                f'(unexpected shape {var_vals.shape})')
+                    continue
+                file_props[var] = var_vals[active_mask]
+            # import pdb;pdb.set_trace()
+
+            # kwargs from caller take precedence over file values
+            merged = {**file_props, **kwargs}
+
+            # --- Resolve seed time ---
+            if new_seed_time is not None:
+                seed_time = new_seed_time
+            else:
+                seed_time = self._datetime64_to_datetime(ds.time.values[tidx])
+
+        finally:
+            if close_ds:
+                ds.close()
+
+        logger.info(f'seed_hotstart: seeding {n_active} particles at {seed_time}')
+        logger.info(f'seed_hotstart: seeding variables')
+        self.seed_elements(lon=lon, lat=lat, time=seed_time, **merged)
+
     def horizontal_diffusion(self):
         """Move elements with random walk according to given horizontal diffuivity."""
         if 'horizontal_diffusivity' not in self.required_variables:
