@@ -119,9 +119,10 @@ class Reader(BaseReader,UnstructuredReader):
             'WWM_18'     : 'sea_surface_wave_from_direction', #!Peak (dominant) direction (degr)
             'stokes_hvel': 'sea_surface_wave_stokes_drift_x_velocity',
             'stokes_hvel': 'sea_surface_wave_stokes_drift_y_velocity',
+            'diffusivity':'ocean_vertical_diffusivity', #!vertical eddy diffusivity [m^2/s] {diffusivity}  3D
+            # 'viscosity' : 'ocean_vertical_diffusivity'
+            'mixingLength' : 'ocean_mixed_layer_thickness'
             }
-            # 'diffusivity' : 'ocean_vertical_diffusivity'}
-            # viscosity
 
             # elev = 1 !0: off; 1: on - elev. [m]
             # pres = 0 !air pressure [Pa]
@@ -204,7 +205,6 @@ class Reader(BaseReader,UnstructuredReader):
             else:
                 logger.info('Opening file with dataset')
                 self.dataset = xr.open_dataset(filename,chunks={'time': 1})
-
         except Exception as e:
             raise ValueError(e)
 
@@ -244,6 +244,10 @@ class Reader(BaseReader,UnstructuredReader):
                 logger.debug('Also adding static shoreline file %s for additionnal on-land particles' %  kwargs['shore_file'])
                 self.shore_file = kwargs['shore_file']
                 self.shore_landmask = self.load_shoreline_landmask() # add self.shore_landmask as prepared geometry
+        if 'use_true_outline' in kwargs: # try to use the true outline of mesh as bounding polygon
+                self.use_true_outline = kwargs['use_true_outline']
+        else:
+            self.use_true_outline = None
 
         logger.debug('Finding coordinate variables.')
         # Find x, y and z coordinates
@@ -500,18 +504,20 @@ class Reader(BaseReader,UnstructuredReader):
         from shapely.geometry import Polygon
         from shapely.prepared import prep
         from scipy.spatial import ConvexHull
-        if 'SCHISM_hgrid_face_nodes' in self.dataset.variables:
-            try:
-                face = self.dataset['SCHISM_hgrid_face_nodes'].isel(time=0)[:,0:3]-1
-            except:
-                face = self.dataset['SCHISM_hgrid_face_nodes'][:,0:3]-1
-            face = face.load()
-            face = face.astype(int)
-            use_true_outline = (x.shape[0] == face.max()+1).values
-        else:
-            use_true_outline = False
+        if self.use_true_outline is None:
+            if 'SCHISM_hgrid_face_nodes' in self.dataset.variables:
+                try:
+                    face = self.dataset['SCHISM_hgrid_face_nodes'].isel(time=0)[:,0:3]-1
+                except:
+                    face = self.dataset['SCHISM_hgrid_face_nodes'][:,0:3]-1
+                face = face.load()
+                face = face.astype(int)
+                self.use_true_outline = (x.shape[0] == face.max()+1).values
+            else:
+                self.use_true_outline = False
+        # else use the user specifed one
 
-        if not use_true_outline:
+        if not self.use_true_outline:
             P = np.vstack((x, y)).T
             hull = ConvexHull(P)
             boundary1 = P[hull.vertices, :]
@@ -540,11 +546,13 @@ class Reader(BaseReader,UnstructuredReader):
 
             boundary = prep(Polygon(boundary_polygon))
             
-            # import pdb;pdb.set_trace()
-            # import matplotlib.pyplot as plt;plt.ion();plt.show()
-            # from shapely.plotting import plot_polygon
-            # plot_polygon(Polygon(boundary1))
-            # plot_polygon(boundary_polygon)
+        #     import matplotlib.pyplot as plt;plt.ion();plt.show()
+        #     from shapely.plotting import plot_polygon
+        #     plot_polygon(Polygon(boundary))
+        #     plot_polygon(boundary_polygon)
+        #     SCHISM_hgrid_node_x
+        #     plt.plot(self.dataset['SCHISM_hgrid_node_x'],self.dataset['SCHISM_hgrid_node_y'],'k.')
+        # import pdb;pdb.set_trace()
         return boundary
 
 
@@ -661,6 +669,7 @@ class Reader(BaseReader,UnstructuredReader):
             # update the 2D KDtree (will be used to initialize the ReaderBlockUnstruct)
             self.reader_KDtree = cKDTree(np.vstack((variables['x'],variables['y'])).T) 
             # the 3D KDtree in updated within ReaderBlockUnstruct()
+        
         return variables 
 
 
@@ -868,10 +877,11 @@ class Reader(BaseReader,UnstructuredReader):
         if time == time_before or all(v in static_variables for v in variables):
             time_after = None
 
-        if profiles is not None:
+        if False : #profiles is not None:
             # If profiles are requested for any parameters, we
             # add two fake points at the end of array to make sure that the
             # requested block has the depth range required for profiles
+            import pdb;pdb.set_trace()
             mx = np.append(reader_x, [reader_x[-1], reader_x[-1]])
             my = np.append(reader_y, [reader_y[-1], reader_y[-1]])
             mz = np.append(z, [profiles_depth[0], profiles_depth[1]])
@@ -879,6 +889,11 @@ class Reader(BaseReader,UnstructuredReader):
             mx = reader_x
             my = reader_y
             mz = z
+    
+        if profiles is not None:
+            # make the vertical grid for variables for which we extract a profile
+            # env_profiles = {'z': [0, -profiles_depth]}
+            env_profiles = {'z_profile': np.linspace(0, -profiles_depth,20)}
 
         # z = z.copy()[ind_covered]  # Send values and not reference
         # EDIT:commented out: we need to keep the full array so that shapes are consistent
@@ -927,7 +942,7 @@ class Reader(BaseReader,UnstructuredReader):
             reader_data_dict = \
                  self.__convolve_block__(
                  self.get_variables(blockvariables_before, time_before,
-                                    mx, my, mz))          
+                                    mx, my, mz)) 
             # now use reader_data_dict to initialize 
             # a ReaderBlockUnstruct
             logger.debug('initialize ReaderBlockUnstruct var_block_before')
@@ -1430,7 +1445,10 @@ class ReaderBlockUnstruct():
             self.z_3d = data_dict['z_3d'] 
             del self.data_dict['x_3d']
             del self.data_dict['y_3d']
-            del self.data_dict['z_3d']      
+            del self.data_dict['z_3d']
+
+        if 'z_profile' in data_dict.keys():
+            self.z_profile = data_dict['z_profile']      
 
         # Initialize KDtree(s) 
         # > save the 2D one by default (initizalied during reader __init__()
@@ -1522,8 +1540,8 @@ class ReaderBlockUnstruct():
         
         env_dict = {}
         if profiles is not []:
-            # profiles_dict = {'z': self.z} # probably not valid...
-            profiles_dict = {'z': profiles_depth} # consistent with what is done in <unstructured.py> line 70
+            # here we create the grid that will be used to interpolate vertical profiles, from the x_3d,y_3d,z_3d
+            profiles_dict =  {'z': np.linspace(0, -profiles_depth,20)} #{'z': profiles_depth} # consistent with what is done in <unstructured.py> line 70
         for varname, data in self.data_dict.items(): # same syntax as in structured.py, used to be iteritems(self.data_dict)
             nearest = False
             # land mask 
@@ -1593,8 +1611,23 @@ class ReaderBlockUnstruct():
  
                 # horizontal = self._interpolate_horizontal_layers(data, nearest=nearest)
             if profiles is not None and varname in profiles:
-                # not really functional yet...we should interpolate data at top and bottom of profiles here,
-                profiles_dict[varname] = data_interpolated # horizontal
+                if hasattr(self,'z_3d') and (data.shape[0] == self.x_3d.shape[0]):
+                    # find nearest nodes to the 3d profiles
+                    x_prof = np.tile(x,[len(profiles_dict['z']),1])
+                    y_prof = np.tile(y,[len(profiles_dict['z']),1])
+                    z_prof = np.tile(profiles_dict['z'],[len(x),1]).T
+                    dist,i=self.block_KDtree_3d.query(np.vstack((np.ravel(x_prof),np.ravel(y_prof),np.ravel(z_prof))).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
+                    dist[dist<DMIN]=DMIN
+                    fac=(1./dist)
+                    data_prof = (fac*data.take(i)).sum(-1)/fac.sum(-1) # interpolate to vertical levels
+                    # reshape as lev x nb_part and convert to masked array
+                    data_prof = data_prof.reshape(len(profiles_dict['z']),len(x))
+                    # turn to masked array as expected 
+                    data_prof = np.ma.array(data_prof)
+                    profiles_dict[varname] = data_prof
+
+                    # >> check that this is correct read as a diffusion profile in vertical mixing 
+
 
             # if horizontal.ndim > 1:
             #     env_dict[varname] = self.interpolator1d(data_interpolated) #self.interpolator1d(horizontal)
