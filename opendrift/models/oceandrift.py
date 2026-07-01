@@ -133,7 +133,7 @@ class OceanDrift(OpenDriftSimulation):
             'drift:vertical_mixing_at_surface': {'type': 'bool', 'default': False, 'description':
                 'If vertical mixing is activated, surface elements (z=0) can only be mixed (downwards) if this setting it True.',
                 'level': CONFIG_LEVEL_ADVANCED},
-            'vertical_mixing:timestep': {'type': 'float', 'min': 0.1, 'max': 3600, 'default': 60,
+            'vertical_mixing:timestep': {'type': 'float', 'min': 0.1, 'max': 3600*24, 'default': 60,
                 'level': CONFIG_LEVEL_ADVANCED, 'units': 'seconds', 'description':
                 'Time step used for inner loop of vertical mixing.'},
             'vertical_mixing:diffusivitymodel': {'type': 'enum', 'default': 'environment',

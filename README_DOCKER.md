@@ -5,7 +5,7 @@ See https://opendrift.github.io/install.html
 ```
 git clone https://github.com/OpenDrift/opendrift.git # this will get the latest
 cd opendrift/ # where Dockerfile lives
-docker build -t simonwp/opendrift:latest .
+docker build -f Dockerfile_from_official -t simonwp/opendrift:latest .
 ```
 ## or a specific tag
 
