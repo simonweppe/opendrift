@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 import xarray as xr
 from opendrift.readers.basereader import BaseReader, StructuredReader
-from opendrift.readers import open_dataset_opendrift, datetime_from_variable
+from opendrift.readers import open_dataset_opendrift, datetime_from_variable, \
+                              add_standard_name_for_surface_grib_variables
 
 
 class Reader(StructuredReader, BaseReader):
@@ -114,6 +115,8 @@ class Reader(StructuredReader, BaseReader):
         #            raise ValueError(e)
 
         self.Dataset = open_dataset_opendrift(source=filename, zarr_storage_options=zarr_storage_options)
+
+        self.Dataset = add_standard_name_for_surface_grib_variables(self.Dataset)
 
         if name is None:
             self.name = str(filename)
@@ -207,7 +210,12 @@ class Reader(StructuredReader, BaseReader):
             if standard_name == 'time' or axis == 'T' or var_name in ['time', 'vtime']:
                 # Read and store time coverage (of this particular file)
                 if len(var.dims)==1:
-                    self.dimensions['time'] = var.dims[0]
+                    if 'time' in self.dimensions:
+                        if not isinstance(self.dimensions['time'], list):
+                            self.dimensions['time'] = [self.dimensions['time']]
+                        self.dimensions['time'].append(var.dims[0])
+                    else:
+                        self.dimensions['time'] = var.dims[0]
 
                 self.times = datetime_from_variable(var)
                 if len(self.times) > 1:
@@ -280,8 +288,8 @@ class Reader(StructuredReader, BaseReader):
                     if self.proj4 is None:
                         self.proj4 = '+proj=latlong'
                 else:
-                    self.dimensions['x'] = lon_var.dims[0]
-                    self.dimensions['y'] = lat_var.dims[1]
+                    self.dimensions['x'] = lon_var.dims[1]
+                    self.dimensions['y'] = lat_var.dims[0]
                     self.projected = False
                     self.proj = None
                     self.proj4 = None
@@ -397,6 +405,18 @@ class Reader(StructuredReader, BaseReader):
                     var = var.isel(ensemble_member=0).squeeze()
                     self.Dataset[va] = var
 
+        if isinstance(self.dimensions.get('time', None), list):
+            warning = f'Several time dimensions detected: {self.dimensions["time"]}'
+            variable_time_dimensions = []  # Check which time dimensions are actually used
+            for vn, va in self.variable_mapping.items():
+                variable_time_dimensions += [x for x in self.Dataset[va].coords if x in self.dimensions['time']]
+                variable_time_dimensions = list(set(variable_time_dimensions))
+            if len(variable_time_dimensions) == 1:
+                logger.debug(f'{warning}: Using single time dimension found in detected variables: {variable_time_dimensions}')
+                self.dimensions['time'] = variable_time_dimensions[0]
+            elif len(variable_time_dimensions) > 1:
+                raise ValueError(f'{warning}, and also several time dimensions used by detected variables: {variable_time_dimensions}')
+
         # Run constructor of parent Reader class
         super().__init__()
 
@@ -412,8 +432,10 @@ class Reader(StructuredReader, BaseReader):
 
         if hasattr(self, 'z') and (z is not None):
             # Find z-index range
-            # NB: may need to flip if self.z is ascending
-            indices = np.searchsorted(-self.z, [-z.min(), -z.max()])
+            if self.z[0] > self.z[-1]:  # descending
+                indices = np.searchsorted(-self.z, [-z.min(), -z.max()])
+            else:  # ascending
+                indices = np.searchsorted(self.z, [z.min(), z.max()])
             indz = np.arange(np.maximum(0, indices.min() - 1 -
                                         self.verticalbuffer),
                              np.minimum(len(self.z), indices.max() + 1 +

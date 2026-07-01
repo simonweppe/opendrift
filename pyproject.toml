@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "opendrift"
 requires-python = ">=3.9"
-version = "1.14.8"
+version = "1.14.10"
 description = "OpenDrift - a framework for ocean trajectory modeling"
 authors = [
   { name = "Knut-Frode Dagestad", email = "knutfd@met.no" },
@@ -30,7 +30,8 @@ dependencies = [
   "pykdtree>=1.3",
   "xhistogram>=0.3",
   "adios_db>1.2",
-  "copernicusmarine>=2.0"
+  "copernicusmarine>=2.0",
+  "psutil>=7"
   ]
 
 [project.scripts]

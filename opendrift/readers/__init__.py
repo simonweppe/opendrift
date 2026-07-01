@@ -20,11 +20,15 @@ The `ContinuousReader` is suited for data that can be defined at any point withi
     See :class:`.basereader.BaseReader` for how readers work internally.
 """
 
+import os
 from datetime import datetime, timedelta
+import pkgutil
 import importlib
+from urllib.parse import urlparse, parse_qsl
 import logging; logger = logging.getLogger(__name__)
 import glob
 import json
+import numpy as np
 import opendrift
 import xarray as xr
 import copernicusmarine
@@ -85,6 +89,47 @@ def open_dataset_opendrift(source, zarr_storage_options=None, open_mfdataset_opt
 
     return ds
 
+def add_standard_name_for_surface_grib_variables(ds):
+    """Try to identify surface variables from GRIB datasets
+       and add standard_name attribute"""
+    GRIB_parameters = {
+        'wind_speed': {'Grib2_Parameter': np.array([0, 2, 1])},
+        'eastward_wind': {'Grib2_Parameter': np.array([0, 2, 2])},
+        'northward_wind': {'Grib2_Parameter': np.array([0, 2, 3])},
+        }
+    surface_variables = {'u10': 'eastward_wind', 'v10': 'northward_wind'}
+
+    for var_name, var in ds.data_vars.items():
+        if any(forbidden.lower() in var_name.lower() for forbidden in ('percentile', 'pctl')):
+            logger.debug(f'Skipping percentile variable {var_name}')
+            continue
+        if 'standard_name' in var.attrs and var.attrs['standard_name'] != 'unknown':
+            continue
+        if var_name in surface_variables:
+            standard_name = surface_variables[var_name]
+            logger.debug(f'Selecting GRIB variable {var_name} at 10m height and adding standard_name {standard_name}')
+            ds[var_name].attrs['standard_name'] = standard_name
+            continue
+
+        if var.attrs.get('Grib2_Level_Type', None) != 103:
+            continue  # Not surface variable
+        for standard_name, maps in GRIB_parameters.items():
+            if isinstance(maps, dict):
+                maps = [maps]
+            if any(
+                np.all(attval == var.attrs.get(att))  # attribute value is found in map
+                for ma in maps
+                for att, attval in ma.items()
+                if att in var.attrs  # variable has attribute
+            ):
+                # Must check that height is 10m or surface
+                for coordname, coordvar in var.coords.items():
+                    if coordvar.attrs.get('_CoordinateAxisType', None) == 'Height' and 10 in coordvar.values:
+                        logger.debug(f'Selecting GRIB variable {var_name} at 10m height and adding standard_name {standard_name}')
+                        ds[var_name] = var.sel({coordname: 10})
+                        ds[var_name].attrs['standard_name'] = standard_name
+    return ds
+
 def datetime_from_variable(var):
     import pandas as pd
     try:
@@ -110,6 +155,24 @@ def open_mfdataset_overlap(url_base, time_series=None, start_time=None, end_time
                    compat='override', combine_attrs='override', join='override', coords='minimal', data_vars='minimal')
     return ds
 
+def all_readers():
+    '''Return a list of all readers in subpackage opendrift.readers'''
+    # Import the sub-package
+    subpackage_name = 'opendrift.readers'
+    subpackage = importlib.import_module(subpackage_name)
+
+    # Get the path of the sub-package
+    package_path = subpackage.__path__
+
+    # List all modules in the sub-package
+    modules = []
+    for _, module_name, is_pkg in pkgutil.iter_modules(package_path):
+        if module_name.startswith('reader_'):
+            #full_module_name = f"{subpackage_name}.{module_name}"
+            modules.append(module_name)
+
+    return modules
+
 def applicable_readers(url):
     '''Return a list of readers that are possible candidates for a given URL, filename or product ID'''
 
@@ -126,35 +189,91 @@ def applicable_readers(url):
         except :
             return []
 
-def reader_from_url(url, timeout=10):
-    '''Make readers from URLs or paths to datasets'''
+#def reader_from_url(url, timeout=10):
+#    '''Make readers from URLs or paths to datasets'''
+#
+#    if isinstance(url, list):
+#        return [reader_from_url(u) for u in url]
+#
+#    try:  # Initialise reader from JSON string
+#        j = json.loads(url)
+#        try:
+#            reader_module = importlib.import_module(
+#                    'opendrift.readers.' + j['reader'])
+#            reader = getattr(reader_module, 'Reader')
+#            del j['reader']
+#            reader = reader(**j)
+#            return reader
+#        except Exception as e:
+#            logger.warning('Creating reader from JSON failed:')
+#            logger.warning(e)
+#    except:
+#        pass
+#
+#    reader_modules = applicable_readers(url)
+#
+#    for reader_module in reader_modules:
+#        try:
+#            logger.debug(f'Testing reader {reader_module}')
+#            r = reader_module.Reader(url)
+#            return r
+#        except Exception as e:
+#            logger.debug('Could not open %s with %s' % (url, reader_module))
+#
+#    return None  # No readers worked
 
-    if isinstance(url, list):
-        return [reader_from_url(u) for u in url]
+def reader_from_urlpath(urlpath, print_errors=False):
 
-    try:  # Initialise reader from JSON string
-        j = json.loads(url)
+    if isinstance(urlpath, list):
+        return [reader_from_urlpath(u) for u in urlpath]
+
+    available_readers = all_readers()
+    
+    parsed = urlparse(urlpath.strip())
+
+    if len(parsed.path.split('://')) > 1:
+        requested_reader = parsed.path.split('://')[0]
+        path = parsed.path.split('://')[1]
+    else:
+        requested_reader = None
+        path = parsed.path
+
+    query = parse_qsl(parsed.query)
+    if len(query) == 0:
+        options = {}
+    else:
+        options = dict(query)
+
+    if requested_reader is not None:
         try:
-            reader_module = importlib.import_module(
-                    'opendrift.readers.' + j['reader'])
-            reader = getattr(reader_module, 'Reader')
-            del j['reader']
-            reader = reader(**j)
-            return reader
-        except Exception as e:
-            logger.warning('Creating reader from JSON failed:')
-            logger.warning(e)
-    except:
-        pass
+            reader_module = importlib.import_module(f'opendrift.readers.{requested_reader}')
+        except:
+            logger.debug(f'Cannot import reader {requested_reader}')
+            return None
 
-    reader_modules = applicable_readers(url)
+        if path == '':
+            reader = reader_module.Reader(**options)
+        else:
+            reader = reader_module.Reader(path, **options)
+        return reader
 
-    for reader_module in reader_modules:
-        try:
-            logger.debug(f'Testing reader {reader_module}')
-            r = reader_module.Reader(url)
-            return r
-        except Exception as e:
-            logger.debug('Could not open %s with %s' % (url, reader_module))
+    if os.path.exists(urlpath) or path != '':  # URL or filename, no reader specified
+        # We try different readers, returning first successful
+        reader_modules = applicable_readers(urlpath)
+        if len(reader_modules) == 0:
+            logger.debug(f'No applicable readers found for {urlpath}')
+            return None
 
-    return None  # No readers worked
+        for reader_module in reader_modules:
+            try:
+                logger.debug(f'Testing reader {reader_module}')
+                reader = reader_module.Reader(urlpath)
+                return reader
+            except Exception as e:
+                if print_errors is True:
+                    import traceback
+                    print(traceback.format_exc())
+                    print('---------------------------------------')
+                logger.debug(f'Could not open {urlpath} with {reader_module}')
+
+        return None  # No readers worked

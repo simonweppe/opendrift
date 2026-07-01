@@ -301,20 +301,20 @@ class OpenBerg(OpenDriftSimulation):
         'sea_surface_height': {'fallback': 0, 'important': False},
         "sea_surface_x_slope": {"fallback": 0, 'important': False},
         "sea_surface_y_slope": {"fallback": 0, 'important': False},
-        "x_wind": {"fallback": None, "important": True},
-        "y_wind": {"fallback": None, "important": True},
+        "x_wind": {"fallback": None},
+        "y_wind": {"fallback": None},
         # Since OpenBerg model is deterministic for given iceberg size,
         # (in contrast to the Leeway model), we use a default diffusivity
         # to yield some variability.
-        "horizontal_diffusivity": {"fallback": 0, "important": False},
+        "horizontal_diffusivity": {"fallback": 100, "important": False},
         "sea_surface_wave_significant_height": {"fallback": 0},
         "sea_surface_wave_from_direction": {"fallback": 0},
         "sea_surface_wave_stokes_drift_x_velocity": {"fallback": 0, 'important': False},
         "sea_surface_wave_stokes_drift_y_velocity": {"fallback": 0, 'important': False},
-        "sea_water_temperature": {"fallback": 2, "profiles": True},
-        "sea_water_salinity": {"fallback": 35, "profiles": True},
-        "sea_ice_area_fraction": {"fallback": 0},
-        "sea_ice_thickness": {"fallback": 0},
+        "sea_water_temperature": {"fallback": 2, "profiles": True, 'important': False},
+        "sea_water_salinity": {"fallback": 35, "profiles": True, 'important': False},
+        "sea_ice_area_fraction": {"fallback": 0, 'important': False},
+        "sea_ice_thickness": {"fallback": 0, 'important': False},
         "sea_ice_x_velocity": {"fallback": 0, "important": False},
         "sea_ice_y_velocity": {"fallback": 0, "important": False},
         "land_binary_mask": {"fallback": None},
@@ -443,7 +443,7 @@ class OpenBerg(OpenDriftSimulation):
         sea_slope_y = self.environment.sea_surface_y_slope
         sea_surface_height= self.environment.sea_surface_height
         wave_height = self.environment.sea_surface_wave_significant_height
-        wave_direction = -self.environment.sea_surface_wave_from_direction
+        wave_direction = (self.environment.sea_surface_wave_from_direction+180) % 360  # internal convention: direction to
         sea_ice_thickness = self.environment.sea_ice_thickness
         sea_ice_conc = self.environment.sea_ice_area_fraction
         water_depth = self.environment.sea_floor_depth_below_sea_level

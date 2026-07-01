@@ -32,6 +32,7 @@ from opendrift.models.openoil import OpenOil
 from opendrift.models.windblow import WindBlow
 from opendrift.models.shipdrift import ShipDrift
 from opendrift.models.larvalfish import LarvalFish
+from opendrift.models.larvalfish_extended import LarvalFishExtended
 
 import opendrift
 print(opendrift.versions())
@@ -70,7 +71,7 @@ class TestModels(unittest.TestCase):
         o.seed_elements(lon, lat, radius=5000, number=1000,
                         time=reader_arome.start_time)
         o.run(steps=24, time_step=3600)
-        self.assertAlmostEqual(o.elements.lon.max(), 15.864, 2)
+        self.assertAlmostEqual(o.elements.lon.max(), 15.881, 2)
 
     def test_shipdrift(self):
         """Sintef case study"""
@@ -152,6 +153,10 @@ class TestModels(unittest.TestCase):
 
     def test_larvalfish(self):
         o = LarvalFish()
+        # Tests to be added
+
+    def test_larvalfishextended(self):
+        o = LarvalFishExtended()
         # Tests to be added
 
 if __name__ == '__main__':

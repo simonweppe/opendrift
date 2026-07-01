@@ -92,6 +92,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
+from opendrift.models.physics_methods import seawater_dynamic_viscosity
 from opendrift.models.oceandrift import OceanDrift, Lagrangian3DArray
 from . import noaa_oil_weathering as noaa
 from . import adios
@@ -342,9 +343,11 @@ class OpenOil(OceanDrift):
             other_oiltypes = [o for o in self.oiltypes if o[0:7] != 'GENERIC']
             self.oiltypes = sorted([o for o in generic_oiltypes]) + sorted([o for o in other_oiltypes])
             self.oiltypes = [ot for ot in self.oiltypes if ot not in self.duplicate_oils]
-            # append names of "sample_oils" of OilLibrary (modified s.weppe)
-            for so in sample_oils._sample_oils.keys() :
-                self.oiltypes.append(so) # using unicode for consistency
+            # # append names of "sample_oils" of OilLibrary (modified s.weppe)
+            # for so in sample_oils._sample_oils.keys() :
+            #     self.oiltypes.append(so) # using unicode for consistency
+            self.oiltype = None
+
             # For Norwegian oils, max water fraction from Sintef is overriding NOAA value
             self.max_water_fraction = None
         else:
@@ -978,8 +981,7 @@ class OpenOil(OceanDrift):
         rho_water = self.sea_water_density(T=T0, S=S0)
 
         # dynamic water viscosity
-        my_w = 0.001 * (1.7915 - 0.0538 * T0 + 0.007 *
-                        (T0**(2.0)) - 0.0023 * S0)
+        my_w = seawater_dynamic_viscosity(T0, S0)
         # ~0.0014 kg m-1 s-1
         # kinemativ water viscosity
         ny_w = my_w / rho_water
@@ -1548,6 +1550,8 @@ class OpenOil(OceanDrift):
                     f"{self.oiltype} is not a valid oil for Opendrift simulations"
                 )
                 raise ValueError()
+            self.__set_seed_config__('seed:oil_type', self.oil_name)
+            logger.info(f'setting oil_type to: {self.oil_name} (ID: {oiltypeid})')
         else:
             raise ValueError("unsupported oil weathering model")
 
@@ -1611,6 +1615,11 @@ class OpenOil(OceanDrift):
                         self.add_metadata('seed_time', val)
                 elif isinstance(val, str):
                     self.add_metadata('seed_' + s, val)
+                elif val is None:
+                    logger.debug(
+                        f'Skip seed metadata for None value with variable: {s}'
+                    )
+                    pass
                 else:
                     self.add_metadata('seed_' + s, np.atleast_1d(val).mean())
         if not 'seed_oiltype' in self.metadata_dict:
@@ -1712,9 +1721,12 @@ class OpenOil(OceanDrift):
             else:  # Oil do not exist -> setting config to raise error and provide suggestions
                 self.set_config('seed:oil_type', kwargs['oil_type'])
         else:
-            logger.info('Oil type not specified, using default: ' +
-                        self.get_config('seed:oil_type'))
-            self.set_oiltype(self.get_config('seed:oil_type'))
+            if self.oiltype is None:
+                logger.info('Oil type not specified, using default: ' +
+                            self.get_config('seed:oil_type'))
+                self.set_oiltype(self.get_config('seed:oil_type'))
+            else:
+                logger.info(f'Oil type already set as {self.oiltype.name}')
 
         if self.oil_weathering_model == 'noaa':
             self.Density = Density(self.oiltype.oil)
