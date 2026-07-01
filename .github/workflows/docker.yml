@@ -2,8 +2,6 @@ name: docker
 
 on:
   push:
-    branches:
-      - 'master'
 
 jobs:
   docker:
@@ -22,5 +20,7 @@ jobs:
         name: Build and push
         uses: docker/build-push-action@v3
         with:
+          context: .
+          file: ./Dockerfile_from_official
           push: true
-          tags: opendrift/opendrift:latest
+          tags: simonwp/opendrift:latest
