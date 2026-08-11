@@ -188,7 +188,14 @@ class Reader(BaseReader,UnstructuredReader):
             logger.info('Opening dataset: ' + filestr)
             if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
                 logger.info('Opening files with open_mfdataset')
-                self.dataset = xr.open_mfdataset(filename,chunks={'time': 1}).drop_duplicates(dim = 'time', keep='last') #
+                self.dataset = xr.open_mfdataset(filename,
+                                                chunks={},#{'time': 1},
+                                                combine='nested',
+                                                concat_dim='time',
+                                                data_vars='minimal',   # avoid pulling in unrelated data_vars, faster concat
+                                                coords='minimal',
+                                                compat='override',     # don't compare non-concat coords/attrs across files
+                                            ).drop_duplicates(dim='time', keep='last')
                 # Note the <.drop_duplicates(dim = 'time', keep='last')> is particulary important
                 # when running with daily averaged data.
                 # If data was downloaded in daily files, each daily-averaged file will have 2 timesteps [t0, t0+1day]; 
