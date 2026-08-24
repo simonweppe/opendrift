@@ -5190,6 +5190,14 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
             raise ValueError(f'Available modes are {list(Mode.__members__.keys())}')
 
         self.mode = mode
+    
+    ############################################################################################################
+    # add LCS functions - s.weppe, separate script with LCS functions
+    ############################################################################################################
+    from opendrift.models.lcs_methods import calculate_green_cauchy_tensor,calculate_LD 
+    calculate_green_cauchy_tensor = calculate_green_cauchy_tensor
+    calculate_LD = calculate_LD
+
 
 def evaluate_conditional(key, operator, value, self=None):
     """Evaluate a condition as True or False
