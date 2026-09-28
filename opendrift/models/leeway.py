@@ -352,9 +352,23 @@ class Leeway(OpenDriftSimulation):
 
         # Crosswind leeway properties
         rcw = np.random.randn(number)
-        crosswind_slope, crosswind_offset, crosswind_std = \
-            self._crosswind_coefficients(object_type * ones, orientation)
-        crosswind_eps = rcw * crosswind_std
+        crosswind_slope = np.zeros(number)
+        crosswind_offset = np.zeros(number)
+        crosswind_eps = np.zeros(number)
+        crosswind_slope[orientation == RIGHT] = \
+            self.leewayprop[object_type]['CWRSLOPE']
+        crosswind_slope[orientation == LEFT] = \
+            self.leewayprop[object_type]['CWLSLOPE']
+        crosswind_offset[orientation == RIGHT] = \
+            self.leewayprop[object_type]['CWROFFSET']
+        crosswind_offset[orientation == LEFT] = \
+            self.leewayprop[object_type]['CWLOFFSET']
+        crosswind_eps[orientation == RIGHT] = \
+            rcw[orientation == RIGHT] * \
+            self.leewayprop[object_type]['CWRSTD']
+        crosswind_eps[orientation == LEFT] = \
+            rcw[orientation == LEFT] * \
+            self.leewayprop[object_type]['CWLSTD']
 
         # NB
         # crosswind_eps = np.zeros(number)
@@ -384,24 +398,6 @@ class Leeway(OpenDriftSimulation):
                                           downwind_eps=downwind_eps,
                                           crosswind_eps=crosswind_eps,
                                           **kwargs)
-
-    def _crosswind_coefficients(self, object_type, orientation):
-        """Return crosswind slope, offset and std for given orientation.
-
-        Positive crosswind leeway is to the right of downwind."""
-        object_type = np.atleast_1d(object_type).astype(int)
-        orientation = np.atleast_1d(orientation).astype(int)
-        slope = np.zeros(len(orientation))
-        offset = np.zeros(len(orientation))
-        std = np.zeros(len(orientation))
-        for ot in np.unique(object_type):
-            prop = self.leewayprop[ot]
-            for ori, side in ((RIGHT, 'CWR'), (LEFT, 'CWL')):
-                ind = (object_type == ot) & (orientation == ori)
-                slope[ind] = prop[side + 'SLOPE']
-                offset[ind] = prop[side + 'OFFSET']
-                std[ind] = prop[side + 'STD']
-        return slope, offset, std
 
     def list_object_categories(self, substr=None):
         '''Display leeway categories to screen
@@ -487,19 +483,9 @@ class Leeway(OpenDriftSimulation):
         jp_per_timestep = 1 - np.exp(
             -jibe_rate * np.abs(self.time_step.total_seconds()))
         jib = jp_per_timestep > np.random.random(self.num_elements_active())
-        if np.any(jib):
-            # Swap to the crosswind coefficients of the other side,
-            # keeping the same normalised random perturbation
-            _, _, old_std = self._crosswind_coefficients(
-                self.elements.object_type[jib], self.elements.orientation[jib])
-            self.elements.orientation[jib] = 1 - self.elements.orientation[jib]
-            slope, offset, std = self._crosswind_coefficients(
-                self.elements.object_type[jib], self.elements.orientation[jib])
-            eps = self.elements.crosswind_eps[jib]
-            self.elements.crosswind_eps[jib] = np.divide(
-                eps * std, old_std, out=np.zeros_like(std), where=old_std != 0)
-            self.elements.crosswind_slope[jib] = slope
-            self.elements.crosswind_offset[jib] = offset
+        self.elements.crosswind_slope[
+            jib] = -self.elements.crosswind_slope[jib]
+        self.elements.orientation[jib] = 1 - self.elements.orientation[jib]
         logger.debug('Jibing %i out of %i elements.' %
                      (np.sum(jib), self.num_elements_active()))
 

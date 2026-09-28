@@ -6,8 +6,6 @@ History
 * Bugfix in Leeway: crosswind leeway was applied to the wrong side of downwind
   (orientation right drifted left and vice versa), mirroring the drift of objects
   with asymmetric left/right coefficients (24 of 85 objects, e.g. PIW-4, life rafts, sailboats).
-  Jibing elements now also take the crosswind offset and std of the new side
-  (previously only the slope was negated).
 * Bugfix in reader_ROMS_native: sigma-to-z interpolation could select the wrong
   sigma layers (with precalculate_s2z_coefficients=True) when the fetched data
   area spanned deeper water than the particles, giving wrong sub-surface fields.
