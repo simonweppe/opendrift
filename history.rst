@@ -7,6 +7,10 @@ History
   sigma layers (with precalculate_s2z_coefficients=True) when the fetched data
   area spanned deeper water than the particles, giving wrong sub-surface fields.
 * remove proj dependeny (this is not a python package).
+* Bugfix in Leeway: jibing elements only had the sign of the crosswind slope flipped,
+  keeping the crosswind offset and std of the old side. They now take all crosswind
+  coefficients of the new side. Affects objects with asymmetric coefficients or
+  non-zero crosswind offsets (43 of 85 objects).
 
 2026-08-28 / Release v1.14.11
 -----------------------------

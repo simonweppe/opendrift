@@ -20,6 +20,7 @@
 import os
 import time
 from datetime import datetime, timedelta
+import numpy as np
 from . import *
 
 from opendrift.readers import reader_global_landmask
@@ -88,6 +89,23 @@ def test_leewayrun(tmpdir, test_data):
                     for line in differ.compare(file_1.readlines(), file_2.readlines()):
                         print(line)
                 raise ValueError('Leeway ascii output does not match any of the two template files')
+
+def test_jibing_swaps_crosswind_coefficients():
+    """After jibing, elements must carry the crosswind coefficients of their new side."""
+    object_type = 24  # LIFE-RAFT-SB-10, asymmetric left/right coefficients
+    o = Leeway(loglevel=50)
+    o.set_config('environment:constant', {'x_sea_water_velocity': 0, 'y_sea_water_velocity': 0,
+                    'x_wind': 0, 'y_wind': 10, 'land_binary_mask': 0})
+    o.seed_elements(lon=4, lat=60, time=datetime(2020, 1, 1), number=100,
+                    object_type=object_type, jibe_probability=.5)
+    o.run(duration=timedelta(hours=6), time_step=900)
+    p = o.leewayprop[object_type]
+    ori = o.elements.orientation
+    assert np.any(ori == 0) and np.any(ori == 1)
+    for side, orientation in (('CWR', 0), ('CWL', 1)):
+        ind = ori == orientation
+        np.testing.assert_allclose(o.elements.crosswind_slope[ind], p[side + 'SLOPE'])
+        np.testing.assert_allclose(o.elements.crosswind_offset[ind], p[side + 'OFFSET'])
 
 def test_capsize():
     o = Leeway(loglevel=20)
