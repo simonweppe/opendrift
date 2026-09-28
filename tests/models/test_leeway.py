@@ -194,3 +194,41 @@ def test_crosswind_direction(tmp_path):
     np.testing.assert_allclose(x_km[ori == 0].mean(), expected[0], rtol=.1)  # right: east
     np.testing.assert_allclose(x_km[ori == 1].mean(), expected[1], rtol=.1)  # left: west
 
+
+def test_jibing_swaps_crosswind_coefficients(tmp_path):
+    """After jibing, elements must carry the coefficients of their new side.
+
+    A diagnostic plot is saved to tmp_path.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    o, x_km, y_km = _run_constant_northward_wind(object_type=24, jibe_probability=.5, hours=6)
+    p = o.leewayprop[24]
+    ori = o.elements.orientation
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    for side, orientation, name, color in (('CWR', 0, 'right', 'tab:red'),
+                                          ('CWL', 1, 'left', 'tab:blue')):
+        ind = ori == orientation
+        ax.scatter(o.elements.crosswind_slope[ind], o.elements.crosswind_offset[ind],
+                   s=40, c=color, zorder=3, label=f'{ind.sum()} elements now {name} of downwind')
+        ax.plot(p[side + 'SLOPE'], p[side + 'OFFSET'], 'o', mfc='none', mec=color, mew=2,
+                ms=20, label=f'{side} coefficients in OBJECTPROP.DAT')
+    ax.set_xlabel('Crosswind slope [%]')
+    ax.set_ylabel('Crosswind offset [cm/s]')
+    ax.set_title('LIFE-RAFT-SB-10 after 6 h with jibe probability 0.5/h\n'
+                 'each element should sit inside the circle of its side')
+    ax.grid(True)
+    ax.legend(fontsize=8)
+    plotfile = tmp_path / 'leeway_jibing_coefficients.png'
+    fig.savefig(plotfile, dpi=100)
+    plt.close(fig)
+    print(f'Plot saved to {plotfile}')
+
+    assert np.any(ori == 0) and np.any(ori == 1)
+    for side, orientation in (('CWR', 0), ('CWL', 1)):
+        ind = ori == orientation
+        np.testing.assert_allclose(o.elements.crosswind_slope[ind], p[side + 'SLOPE'])
+        np.testing.assert_allclose(o.elements.crosswind_offset[ind], p[side + 'OFFSET'])
