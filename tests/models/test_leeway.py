@@ -149,18 +149,18 @@ def _run_constant_northward_wind(object_type, jibe_probability, hours=24):
 def test_crosswind_direction(tmp_path):
     """Right-of-downwind elements should drift to the right of the wind.
 
-    PIW-4 (survival suit) is asymmetric: right slope 1.36, offset -3.30,
-    left slope -0.13, offset -2.65. With 10 m/s wind blowing towards north,
-    right-drifting elements move east (~10.3 cm/s) and left-drifting west (~3.95 cm/s).
+    LIFE-RAFT-SB-10 (1-man raft with canopy) is asymmetric: right slope 0.5,
+    offset 7.0, left slope 0.1, offset -6.2. With 10 m/s wind blowing towards north,
+    right-drifting elements move east (~12 cm/s) and left-drifting west (~5.2 cm/s).
     A diagnostic plot is saved to tmp_path.
     """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    o, x_km, y_km = _run_constant_northward_wind(object_type=4, jibe_probability=0)
+    o, x_km, y_km = _run_constant_northward_wind(object_type=24, jibe_probability=0)
     ori = o.elements.orientation
-    p = o.leewayprop[4]
+    p = o.leewayprop[24]
     to_km = .01 * 24 * 3600 / 1000  # cm/s over 24 hours
     expected = {0: (p['CWRSLOPE'] * 10 + p['CWROFFSET']) * to_km,
                 1: (p['CWLSLOPE'] * 10 + p['CWLOFFSET']) * to_km}
@@ -178,7 +178,7 @@ def test_crosswind_direction(tmp_path):
     ax.axvline(0, color='gray', lw=.5)
     ax.set_xlabel('Crosswind, east [km]')
     ax.set_ylabel('Downwind, north [km]')
-    ax.set_title('PIW-4, 10 m/s wind towards north, 24 h, no jibing\n'
+    ax.set_title('LIFE-RAFT-SB-10, 10 m/s wind towards north, 24 h, no jibing\n'
                  'X = modelled mean, dashed = expected from OBJECTPROP.DAT')
     ax.set_aspect('equal')
     leg = ax.legend(loc='lower left', fontsize=8)
@@ -204,8 +204,8 @@ def test_jibing_swaps_crosswind_coefficients(tmp_path):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    o, x_km, y_km = _run_constant_northward_wind(object_type=4, jibe_probability=.5, hours=6)
-    p = o.leewayprop[4]
+    o, x_km, y_km = _run_constant_northward_wind(object_type=24, jibe_probability=.5, hours=6)
+    p = o.leewayprop[24]
     ori = o.elements.orientation
 
     fig, ax = plt.subplots(figsize=(7, 6))
@@ -218,7 +218,7 @@ def test_jibing_swaps_crosswind_coefficients(tmp_path):
                 ms=20, label=f'{side} coefficients in OBJECTPROP.DAT')
     ax.set_xlabel('Crosswind slope [%]')
     ax.set_ylabel('Crosswind offset [cm/s]')
-    ax.set_title('PIW-4 after 6 h with jibe probability 0.5/h\n'
+    ax.set_title('LIFE-RAFT-SB-10 after 6 h with jibe probability 0.5/h\n'
                  'each element should sit inside the circle of its side')
     ax.grid(True)
     ax.legend(fontsize=8)
