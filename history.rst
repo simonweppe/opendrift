@@ -4,6 +4,7 @@ History
 Unreleased
 ----------
 * reader_datamesh_schism_cons: much faster. Tide is now predicted only at mesh nodes surrounding elements, from constituents loaded in memory at initialisation, instead of on the full mesh (and once per variable) at each time step. Faster initialisation, and fixed in-mesh check with shapely >= 2.1.
+* reader_datamesh_regular_cons: much faster. Constituents are interpolated from a window of the grid around elements, loaded in memory and reused while elements remain within it, and tide is predicted without dask.
 
 2026-06-23 / Release v1.14.10
 -----------------------------

@@ -43,6 +43,9 @@ from opendrift.readers import reader_netCDF_CF_generic
 from opendrift.readers.interpolation.structured import ReaderBlock
 import xarray as xr
 import oceantide
+from oceantide.core.utils import nodal
+from oceantide.constituents import OMEGA
+from scipy.interpolate import RegularGridInterpolator
 
 
 # variable name mapping in datamesh constituent grid
@@ -148,6 +151,17 @@ class Reader(reader_netCDF_CF_generic.Reader):
         # https://github.com/OpenDrift/opendrift/blob/master/opendrift/readers/basereader/variables.py#L443
         self.activate_environment_mapping('land_binary_mask_from_ocean_depth')
 
+        # Constituents supported by oceantide (others are ignored, as in tide.predict())
+        self.cons = [c for c in self.Dataset['con'].values if c in OMEGA]
+        non_supported = set(self.Dataset['con'].values) - set(self.cons)
+        if non_supported:
+            logger.warning(f"Cons {non_supported} not supported by oceantide and will be ignored")
+        self.omega = np.array([OMEGA[c] for c in self.cons])
+        # Window of constituents around elements, loaded in memory and reused while
+        # elements remain within it, see get_cons_block()
+        self.cons_block = None
+        self.cons_block_margin = 20 # grid cells added around elements when loading a new window
+
 
     def check_tidal_amp_format_input(self,ds):
         # check in which format the tidal consistuents' amplitudes and phases are stored.
@@ -209,9 +223,68 @@ class Reader(reader_netCDF_CF_generic.Reader):
 
         return None
     
+    def tide_factor(self, time):
+        """
+        Complex factor pf*exp(j*(omega*t + v0u + pu)) for each constituent at given time,
+        following oceantide's tide.predict(). Tide is then real(amp @ tide_factor),
+        with amp the complex amplitudes of constituents.
+        """
+        # seconds since 1992-01-01, as in oceantide
+        tsec = np.datetime64(time, 'ns').astype('int64') / 1e9 - 694224000
+        pu, pf, v0u = nodal(tsec / 86400 + 48622.0, self.cons)
+        phase = tsec * self.omega + np.ravel(v0u) + np.ravel(pu)
+        return np.ravel(pf) * np.exp(1j * phase)
+
+    def get_cons_block(self, variables, x, y):
+        """
+        Return dict of RegularGridInterpolator for variables (datamesh names), built from
+        a lat/lon window of the dataset covering positions x, y, loaded in memory.
+        The window is reused as long as it covers the positions and holds the variables.
+        """
+        lon = self.Dataset['lon'].values
+        lat = self.Dataset['lat'].values
+        def index_range(coord, values):
+            # range of grid indices surrounding values, clipped to grid
+            values = values[np.isfinite(values)]
+            if len(values) == 0:
+                return 0, 0
+            ascending = coord[-1] > coord[0]
+            c = coord if ascending else coord[::-1]
+            i0 = np.searchsorted(c, values.min(), side='right') - 1
+            i1 = np.searchsorted(c, values.max(), side='left') + 1
+            if not ascending:
+                i0, i1 = len(c) - i1, len(c) - i0
+            return max(i0, 0), min(i1, len(coord))
+        ix = index_range(lon, x)
+        iy = index_range(lat, y)
+        b = self.cons_block
+        if b is None or not set(variables).issubset(b['interpolators']) or \
+                ix[0] < b['ix'][0] or ix[1] > b['ix'][1] or \
+                iy[0] < b['iy'][0] or iy[1] > b['iy'][1]:
+            m = self.cons_block_margin
+            ix = (max(ix[0] - m, 0), min(ix[1] + m, len(lon)))
+            iy = (max(iy[0] - m, 0), min(iy[1] + m, len(lat)))
+            if b is not None:
+                variables = set(variables) | set(b['interpolators'])
+            logger.debug('Loading constituents %s for lon indices %s, lat indices %s' % (list(variables), ix, iy))
+            window = self.Dataset.isel(lon=slice(*ix), lat=slice(*iy))
+            interpolators = {}
+            for v in variables:
+                da = window[v]
+                if 'con' in da.dims:
+                    da = da.sel(con=self.cons).transpose('lat', 'lon', 'con')
+                    values = da.values.astype(np.complex128)
+                else:
+                    values = da.transpose('lat', 'lon').values.astype(np.float64)
+                # same as xarray's interp(), which uses scipy's interpn
+                interpolators[v] = RegularGridInterpolator(
+                    (window['lat'].values, window['lon'].values), values,
+                    method='linear', bounds_error=False, fill_value=np.nan)
+            self.cons_block = b = {'ix': ix, 'iy': iy, 'interpolators': interpolators}
+        return b['interpolators']
+
     def _get_variables_interpolated_(self, variables, profiles, profiles_depth,
                                      time, reader_x, reader_y, z):
-        print(time)
         # overloads the version from <structured.py>
         # 
         # Here we interpolate constituents to particle positions then generate tide signals 
@@ -265,28 +338,31 @@ class Reader(reader_netCDF_CF_generic.Reader):
         # https://stackoverflow.com/questions/55034347/extract-interpolated-values-from-a-2d-array-based-on-a-large-set-of-xy-points
         # http://xarray.pydata.org/en/stable/user-guide/interpolation.html#advanced-interpolation
         
-        lon_id = xr.DataArray(reader_x, dims='z')
-        lat_id = xr.DataArray(reader_y, dims='z') 
-        
-        ####################################################################################3
-        if np.logical_or('x_sea_water_velocity' in variables,'sea_surface_height' in variables):
-            # compute tidal signals 
-            tide_pred = self.Dataset.interp(lon=lon_id, lat=lat_id).tide.predict(times=time).load()
-        
+        # Constituents are interpolated to particle positions, from a window of the dataset
+        # loaded in memory, then tide is predicted with the same equation as oceantide's tide.predict()
+        tide_variables = ['x_sea_water_velocity','y_sea_water_velocity','sea_surface_height']
+        needed = [standard_name_mapping_datamesh_invert[vv] for vv in variables if vv in tide_variables]
+        if 'sea_floor_depth_below_sea_level' in variables or 'land_binary_mask' in variables:
+            needed.append('dep')
+        interpolators = self.get_cons_block(needed, reader_x, reader_y)
+        points = np.column_stack((reader_y, reader_x))
+        if any(vv in tide_variables for vv in variables):
+            tide_factor = self.tide_factor(time)
+
         env = {}
         # the <env> variable to return is a dict such as
         # env =  {'sea_floor_depth_below_sea_level' : np.array(), ...}
         for vv in variables:
             if vv in ['x_sea_water_velocity','y_sea_water_velocity','sea_surface_height']:
-                env[vv] = np.ma.masked_invalid(tide_pred[standard_name_mapping_datamesh_invert[vv]])
+                amp = interpolators[standard_name_mapping_datamesh_invert[vv]](points)
+                env[vv] = np.ma.masked_invalid((amp @ tide_factor).real)
             elif vv in ['sea_floor_depth_below_sea_level'] : # only depth can be requested as static variables 
-                env[vv] = np.ma.masked_invalid(self.Dataset['dep'].interp(lon=lon_id, lat=lat_id))
+                env[vv] = np.ma.masked_invalid(interpolators['dep'](points))
             elif vv in ['land_binary_mask']: # we enforce it here as the  self.activate_environment_mapping('land_binary_mask_from_ocean_depth') doesnt seem to work
-                dep = np.ma.masked_invalid(self.Dataset['dep'].interp(lon=lon_id, lat=lat_id))
+                dep = np.ma.masked_invalid(interpolators['dep'](points))
                 env[vv] = np.float32(dep <= 0) 
             else:
-                # should not happen for now
-                import pdb;pdb.set_trace()
+                raise ValueError('Variable %s not supported by reader' % vv)
         ####################################################################################
         # print(env)
         if False: # run some check plots
