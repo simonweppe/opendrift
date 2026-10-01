@@ -45,6 +45,8 @@ from opendrift.readers.basereader.consts import *
 import xarray as xr
 import shapely
 import oceantide
+from oceantide.core.utils import nodal
+from oceantide.constituents import OMEGA
 
 # [name_used_in_schism : equivalent_CF_name]
 schism_mapping = {
@@ -273,6 +275,19 @@ class Reader(BaseReader,UnstructuredReader):
 
         self.variables = list(self.variable_mapping.keys())
 
+        # Load constituents in memory as (node, con) arrays, so that the tide can be predicted
+        # at the few nodes surrounding particles, rather than on the full mesh at each time step
+        logger.debug('Loading tidal constituents in memory')
+        self.cons = [c for c in self.dataset['con'].values if c in OMEGA]
+        non_supported = set(self.dataset['con'].values) - set(self.cons)
+        if non_supported:
+            logger.warning(f"Cons {non_supported} not supported by oceantide and will be ignored")
+        ds_cons = self.dataset.sel(con=self.cons)
+        self.omega = np.array([OMEGA[c] for c in self.cons])
+        self.cons_amp = {v: np.ascontiguousarray(ds_cons[v].transpose('node', 'con').values)
+                         for v in ['h', 'u', 'v'] if v in ds_cons.variables}
+        self.dep = ds_cons['dep'].values
+
         self.xmin = self.x.min()
         self.xmax = self.x.max()
         self.ymin = self.y.min()
@@ -337,14 +352,15 @@ class Reader(BaseReader,UnstructuredReader):
         from shapely.prepared import prep
         from scipy.spatial import ConvexHull
 
-        outer_bnd_id = np.int64(self.dataset.boundary) # indices of mesh boundary
+        outer_bnd_id = np.int64(self.dataset.boundary.values) # indices of mesh boundary
         mesh_poly = np.vstack((x[outer_bnd_id], y[outer_bnd_id])).T
 
         # now generate a list of island coords to be specified as holes in the mesh boundary
-        # island_polys = [np.int64(island.isel(inum=ii).dropna(dim='inode')).tolist() for ii in island.inum] # wont work..
+        # island array is (inum, inode), padded with NaN - load once rather than per island
+        island = self.dataset.island.values
         island_polys = []
-        for ii in self.dataset.inum:
-            id_island_i = np.int64(self.dataset.island.isel(inum=ii).dropna(dim='inode'))
+        for island_i in island:
+            id_island_i = np.int64(island_i[~np.isnan(island_i)])
             poly_i = np.vstack((x[id_island_i],y[id_island_i])).T
             island_polys.append(poly_i)
 
@@ -395,6 +411,18 @@ class Reader(BaseReader,UnstructuredReader):
         return nearest_time, time_before, time_after,\
             indx_nearest, indx_before, indx_after
 
+
+    def tide_factor(self, time):
+        """
+        Complex factor pf*exp(j*(omega*t + v0u + pu)) for each constituent at given time,
+        following oceantide's tide.predict(). Tide at a node is then real(amp @ tide_factor),
+        with amp the complex amplitudes of constituents at that node.
+        """
+        # seconds since 1992-01-01, as in oceantide
+        tsec = np.datetime64(time, 'ns').astype('int64') / 1e9 - 694224000
+        pu, pf, v0u = nodal(tsec / 86400 + 48622.0, self.cons)
+        phase = tsec * self.omega + np.ravel(v0u) + np.ravel(pu)
+        return np.ravel(pf) * np.exp(1j * phase)
 
     def get_variables(self, requested_variables, time=None,
                       x=None, y=None, z=None, block=False):
@@ -455,7 +483,12 @@ class Reader(BaseReader,UnstructuredReader):
         # dist = distance to nodes / i = index of nodes
         dist[dist<DMIN]=DMIN
         fac=(1./dist)
-        
+        fac = fac / fac.sum(-1, keepdims=True) # inverse-distance weights
+        # unique nodes surrounding particles, where the tide is predicted
+        nodes, i_nodes = np.unique(i, return_inverse=True)
+        i_nodes = i_nodes.reshape(i.shape)
+        tide_factor = None
+
         # # standard_name_mapping_datamesh_invert[vv]
         # import matplotlib.pyplot as plt;plt.ion();plt.show()
         # plt.plot(self.dataset.lon,self.dataset.lat,'k.')
@@ -469,35 +502,30 @@ class Reader(BaseReader,UnstructuredReader):
         # env =  {'sea_floor_depth_below_sea_level' : np.array(), ...}
         for vv in variables:
             if vv in ['x_sea_water_velocity','y_sea_water_velocity','sea_surface_height']:
-                tide_pred = self.dataset.tide.predict(times=time).squeeze() # we squeeze to get rid of dimension time
-                # interpolate to surrounding points
-                data = tide_pred[standard_name_mapping_datamesh_invert[vv]].isel(node=i.ravel()).values.reshape(*i.shape)
+                if tide_factor is None:
+                    tide_factor = self.tide_factor(time)
+                # predict tide at surrounding nodes only, same as oceantide's tide.predict() :
+                # cos*pf*real(amp) - sin*pf*imag(amp) = real(amp * pf*exp(j*phase))
+                amp = self.cons_amp[standard_name_mapping_datamesh_invert[vv]]
+                data = (amp[nodes] @ tide_factor).real[i_nodes]
                 # linear interp to particles
-                data_interpolated = (fac*data).sum(-1)/fac.sum(-1)
-                env[vv] = np.ma.masked_invalid(data_interpolated)
-            elif vv in ['sea_floor_depth_below_sea_level'] : # only depth can be requested as static variables 
-                # interpolate to surrounding points
-                data = self.dataset['dep'].isel(node=i.ravel()).values.reshape(*i.shape)
+                env[vv] = np.ma.masked_invalid((fac*data).sum(-1))
+            elif vv in ['sea_floor_depth_below_sea_level'] : # only depth can be requested as static variables
                 # linear interp to particles
-                data_interpolated = (fac*data).sum(-1)/fac.sum(-1)
-                env[vv] = np.ma.masked_invalid(data_interpolated)
+                env[vv] = np.ma.masked_invalid((fac*self.dep[i]).sum(-1))
             elif vv in ['land_binary_mask']: # we enforce it here as the  self.activate_environment_mapping('land_binary_mask_from_ocean_depth') doesnt seem to work
-                # interpolate to surrounding points
-                data = self.dataset['dep'].isel(node=i.ravel()).values.reshape(*i.shape)
                 # linear interp to particles
-                data_interpolated = (fac*data).sum(-1)/fac.sum(-1)
-                dep = np.ma.masked_invalid(data_interpolated)
-                env[vv] = np.float32(dep <= 0) 
+                dep = np.ma.masked_invalid((fac*self.dep[i]).sum(-1))
+                env[vv] = np.float32(dep <= 0)
             else:
-                # should not happen for now
-                import pdb;pdb.set_trace()
+                raise ValueError('Variable %s not supported by reader' % vv)
         ######################################################################
         # additional on-land checks using mesh_polygon (if present)
         if 'land_binary_mask' in env.keys() and self.use_mesh_polygon : #and hasattr(self,'shore_file'):
             logger.debug('Updating land_binary_mask using mesh polygon')
             lon_tmp,lat_tmp = self.xy2lonlat(reader_x,reader_y)
             # check if particles are within mesh polygon (if False, they are on land)
-            in_mesh = shapely.vectorized.contains(self.mesh_polygon, lon_tmp, lat_tmp) 
+            in_mesh = shapely.contains_xy(self.mesh_polygon.context, lon_tmp, lat_tmp) 
             # update the 'land_binary_mask' accounting for the in-mesh checks (land_binary_mask==1 if particles are on land) 
             env['land_binary_mask'] = np.maximum(env['land_binary_mask'],np.invert(in_mesh).astype(float))
 
