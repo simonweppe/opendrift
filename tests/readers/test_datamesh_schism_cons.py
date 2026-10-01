@@ -10,9 +10,9 @@ from opendrift.readers import reader_datamesh_schism_cons
 
 @pytest.fixture
 def cons_file(tmp_path):
-    """Small synthetic unstructured constituent grid, in Datamesh format"""
+    """Small synthetic unstructured constituent grid, in Datamesh format, in Quiberon Bay"""
     nx, ny = 10, 10
-    lon, lat = np.meshgrid(np.linspace(5, 5.09, nx), np.linspace(60, 60.09, ny))
+    lon, lat = np.meshgrid(np.linspace(-3.20, -3.11, nx), np.linspace(47.39, 47.48, ny))
     lon, lat = lon.ravel(), lat.ravel()
     node = lambda ix, iy: iy * nx + ix
     boundary = [node(ix, 0) for ix in range(nx)] + \
@@ -41,8 +41,8 @@ def cons_file(tmp_path):
 
 def test_datamesh_schism_cons(cons_file):
     r = reader_datamesh_schism_cons.Reader(filename=cons_file)
-    x = np.array([5.012, 5.033, 5.071, 5.045])  # last point is on island
-    y = np.array([60.021, 60.058, 60.012, 60.045])
+    x = np.array([-3.188, -3.167, -3.129, -3.155])  # last point is on island
+    y = np.array([47.411, 47.448, 47.402, 47.435])
     time = datetime(2024, 6, 15, 7, 23)
     variables = ['x_sea_water_velocity', 'y_sea_water_velocity', 'sea_surface_height',
                  'sea_floor_depth_below_sea_level', 'land_binary_mask']
