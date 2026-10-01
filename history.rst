@@ -1,6 +1,12 @@
 History
 =======
 
+Unreleased
+----------
+* reader_schism_native: faster, with same results. Each time slice is read as one chunk, and zcor and vectors (both components) are read only once per time step. The 3D KDtree (rebuilt at each time step) is built from 3D nodes around elements (KDtree_3d_buffer, 10 km by default), with exact fallback to all nodes. KDtree queries are done once for all variables.
+* reader_schism_native: fixed mesh outline (use_true_outline) for meshes with islands, where an island could be used as mesh outline, so that elements were considered outside of reader. Removed debugging stops.
+* reader_schism_native: removed shore_file option (was only used with use_model_landmask, which is not functional). A shoreline can be used with a separate reader, e.g. reader_shape or reader_landmask_custom.
+
 2026-06-23 / Release v1.14.10
 -----------------------------
 * Bugfix in OpenBerg - north-south-component of waves was flipped. Thanks to Shovon Jubair.
