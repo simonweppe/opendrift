@@ -81,10 +81,12 @@ class Reader(BaseReader,UnstructuredReader):
             
             use_model_landmask  : switch to use time-varying landmask from model wetdry_elem 
                                   (False by default)
-            kwargs      : shore_file , allows adding a shoreline file that will be used alongside model 
-                          landmask to flag particles on land in _get_variables_interpolated_()
-                          Required in some cases to avoid particles going on land
-                          Note this file should be one or several closed polygon(s) reprensenting land area
+            kwargs      : use_true_outline : use the outline of mesh (with islands as holes) rather than the convex 
+                                             hull of nodes as reader's coverage. True by default if
+                                             SCHISM_hgrid_face_nodes is available.
+                          KDtree_3d_buffer : 3D KDtree is built from 3D nodes within this horizontal distance 
+                                             of elements (meters, 10 km by default). Does not change results.
+                          A shoreline can be used with a separate reader, e.g. reader_shape or reader_landmask_custom
         """
         if filename is None:
             raise ValueError('Need filename as argument to constructor')
@@ -96,6 +98,10 @@ class Reader(BaseReader,UnstructuredReader):
 
         # Default interpolation method, see function interpolate_block()
         self.interpolation = 'linearNDFast'
+        # The 3D KDtree (rebuilt at each model time step as vertical levels change) is built only from
+        # 3D nodes within this horizontal distance (in reader's projected units, i.e. meters)
+        # of the elements. Results are the same as with all nodes, see ReaderBlockUnstruct.query_3d()
+        self.KDtree_3d_buffer = kwargs.get('KDtree_3d_buffer', 10000.)
         self.convolve = None  # Convolution kernel or kernel size
 
         # [name_used_in_schism : equivalent_CF_name]
@@ -186,10 +192,16 @@ class Reader(BaseReader,UnstructuredReader):
         try:
             # Open file, check that everything is ok
             logger.info('Opening dataset: ' + filestr)
+            # One dask chunk per time step, whole slice otherwise. Using the file's on-disk 
+            # chunks for the other dimensions would split each slice into many small reads,
+            # while get_variables() always loads the full slice anyway.
             if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
                 logger.info('Opening files with open_mfdataset')
+                import glob
+                with xr.open_dataset(sorted(glob.glob(filestr))[0]) as ds: # dimensions from first file
+                    chunks = {d: (1 if d == 'time' else -1) for d in ds.dims}
                 self.dataset = xr.open_mfdataset(filename,
-                                                chunks={},#{'time': 1},
+                                                chunks=chunks,
                                                 combine='nested',
                                                 concat_dim='time',
                                                 data_vars='minimal',   # avoid pulling in unrelated data_vars, faster concat
@@ -211,7 +223,9 @@ class Reader(BaseReader,UnstructuredReader):
                 # ordered_filelist_1.sort()
             else:
                 logger.info('Opening file with dataset')
-                self.dataset = xr.open_dataset(filename,chunks={'time': 1})
+                with xr.open_dataset(filename) as ds:
+                    chunks = {d: (1 if d == 'time' else -1) for d in ds.dims}
+                self.dataset = xr.open_dataset(filename, chunks=chunks)
         except Exception as e:
             raise ValueError(e)
 
@@ -247,10 +261,9 @@ class Reader(BaseReader,UnstructuredReader):
         self.use_model_landmask = use_model_landmask
         if self.use_model_landmask : 
             logger.debug('Using time-varying landmask from SCHISM for on-land particles checks (wetdry_elem variable) ')
-            if 'shore_file' in kwargs:
-                logger.debug('Also adding static shoreline file %s for additionnal on-land particles' %  kwargs['shore_file'])
-                self.shore_file = kwargs['shore_file']
-                self.shore_landmask = self.load_shoreline_landmask() # add self.shore_landmask as prepared geometry
+        if 'shore_file' in kwargs:
+            raise ValueError('shore_file is not supported anymore, use a separate reader for shoreline, '
+                             'e.g. reader_shape or reader_landmask_custom')
         if 'use_true_outline' in kwargs: # try to use the true outline of mesh as bounding polygon
                 self.use_true_outline = kwargs['use_true_outline']
         else:
@@ -536,20 +549,20 @@ class Reader(BaseReader,UnstructuredReader):
             # import numpy as np
             # For an unstructured mesh like SCHISM, the true boundary (not just convex hull) is edges that appear in only one triangle:
             # Find boundary edges (edges belonging to only one triangle)
-            edges = {}
-            for tri in face.values:
-                for i in range(3):
-                    edge = tuple(sorted([tri[i], tri[(i+1) % 3]]))
-                    edges[edge] = edges.get(edge, 0) + 1
-            
+            face = face.values
+            edges = np.sort(np.vstack([face[:, [0, 1]], face[:, [1, 2]], face[:, [2, 0]]]), axis=1)
+            edges, count = np.unique(edges, axis=0, return_counts=True)
             # Boundary edges appear only once
-            boundary_edges = [e for e, count in edges.items() if count == 1]
+            boundary_edges = edges[count == 1]
 
             # Build shapely linestrings and polygonize
             from shapely.geometry import LineString
             lines = [LineString([(x[e[0]], y[e[0]]),
                                 (x[e[1]], y[e[1]])]) for e in boundary_edges]
-            boundary_polygon = list(polygonize(unary_union(lines)))[0]
+            # polygonize returns the mesh outline (with islands as holes) and each island as a polygon :
+            # the mesh outline is the largest one
+            polygons = list(polygonize(unary_union(lines)))
+            boundary_polygon = max(polygons, key=lambda p: p.area)
 
             boundary = prep(Polygon(boundary_polygon))
             
@@ -610,7 +623,7 @@ class Reader(BaseReader,UnstructuredReader):
                     data = var[indxTime,:] # e.g. 2D temperature
                     logger.debug('reading 2D data from unstructured reader %s' % (par))
                 elif var.ndim == 3:
-                    data = var[indxTime,:,:] # e.g. 3D salt [time,node,lev]
+                    data = self.read_time_slice(self.variable_mapping[par], indxTime) # e.g. 3D salt [time,node,lev]
                     logger.debug('reading 3D data from unstructured reader %s' % (par))
                     # convert 3D data matrix to one column array and define corresponding data coordinates [x,y,z]
                     # (+ update variables dictionary with 3d coords if needed)
@@ -624,18 +637,15 @@ class Reader(BaseReader,UnstructuredReader):
                 # In SCHISM netcdf files, both [u,v] components are saved 
                 # as two different dimensions of the same variable.
                 var = self.dataset.variables[self.variable_mapping[par]]
+                # both components are read at once, and reused for the other component
+                vector = self.read_time_slice(self.variable_mapping[par], indxTime)
+                component = 0 if par in ['x_sea_water_velocity','x_wind'] else 1
                 if var.ndim == 3: # depth-averaged current data 'dahv', or 'wind_speed' defined at each node and time [time,node,2]
-                    if par in ['x_sea_water_velocity','x_wind']:
-                       data = var[indxTime,:,0]
-                    elif par in ['y_sea_water_velocity','y_wind']:
-                       data = var[indxTime,:,1] 
+                    data = vector[:,component]
                     logger.debug('reading 2D velocity data from unstructured reader %s' % (par))
 
                 elif var.ndim == 4: # #3D current data 'hvel' defined at each node, level, and time [time,node,zcor,2]
-                    if par == 'x_sea_water_velocity':
-                       data = var[indxTime,:,:,0]   #hvel dimensions : [time,node,lev,2]
-                    elif par == 'y_sea_water_velocity':
-                       data = var[indxTime,:,:,1] #hvel dimensions : [time,node,lev,2]
+                    data = vector[:,:,component] #hvel dimensions : [time,node,lev,2]
                     logger.debug('reading 3D velocity data from unstructured reader %s' % (par))
 
                     # convert 3D data matrix to one column array and define corresponding data coordinates [x,y,z]
@@ -676,9 +686,23 @@ class Reader(BaseReader,UnstructuredReader):
             # update the 2D KDtree (will be used to initialize the ReaderBlockUnstruct)
             self.reader_KDtree = cKDTree(np.vstack((variables['x'],variables['y'])).T) 
             # the 3D KDtree in updated within ReaderBlockUnstruct()
-        
+
+        self._time_slice_cache = None # free memory, slices are now in <variables>
         return variables 
 
+
+    def read_time_slice(self, var_name, id_time):
+        '''
+        Read (and keep in memory) the slice of variable <var_name> at time index <id_time>, 
+        so that it is read only once per time step, e.g. for zcor which is used for every 
+        3D variable, or for both components of vectors.
+        '''
+        cache = getattr(self, '_time_slice_cache', None)
+        if cache is None or cache['id_time'] != id_time:
+            cache = self._time_slice_cache = {'id_time': id_time}
+        if var_name not in cache:
+            cache[var_name] = np.asarray(self.dataset.variables[var_name][id_time])
+        return cache[var_name]
 
     def convert_3d_to_array(self,id_time,data,variable_dict):
         ''' 
@@ -699,13 +723,14 @@ class Reader(BaseReader,UnstructuredReader):
         '''
 
         try:
-            vertical_levels = self.dataset.variables['zcor'][id_time,:,:]
+            # zcor is the same for every variable of a given time step : read it once
+            vertical_levels = self.read_time_slice('zcor', id_time)
             # depth are negative down consistent with convention used in OpenDrift 
             # if using the netCDF4 library, vertical_levels is masked array where "masked" levels are those below seabed  (= 9.9692100e+36)
             # if using the xarray library, vertical_levels is nan for levels are those below seabed
 
             # convert to masked array to be consistent with what netCDF4 lib returns
-            vertical_levels = np.ma.array(vertical_levels, mask = np.isnan(vertical_levels.data)) 
+            vertical_levels = np.ma.array(vertical_levels, mask = np.isnan(vertical_levels)) 
             data = np.asarray(data)
             # vertical_levels.mask = np.isnan(vertical_levels.data) # masked using nan's when using xarray
         except:
@@ -726,7 +751,7 @@ class Reader(BaseReader,UnstructuredReader):
             # lat_tiled = np.tile(self.lat,(self.nb_levels,1)).T
             # arrays are tiled so that lon_tiled[0,:] = return same value i.e. same lon/lat for all z levels 
             if x_tiled.shape != vertical_levels.shape:
-                import pdb;pdb.set_trace()
+                raise ValueError('Shape of zcor %s does not match nodes x levels %s' % (vertical_levels.shape, x_tiled.shape))
             # convert to masked array consistent with vertical_levels
             x_tiled_ma = np.ma.array(x_tiled, mask = vertical_levels.mask) 
             y_tiled_ma = np.ma.array(y_tiled, mask = vertical_levels.mask)
@@ -956,7 +981,9 @@ class Reader(BaseReader,UnstructuredReader):
             self.var_block_before[blockvars_before] = \
                 ReaderBlockUnstruct(reader_data_dict,
                     KDtree = self.reader_KDtree,
-                    interpolation_horizontal=self.interpolation)
+                    interpolation_horizontal=self.interpolation,
+                    x_particles=reader_x, y_particles=reader_y,
+                    KDtree_3d_buffer=self.KDtree_3d_buffer)
             try:
                 len_z = len(self.var_block_before[blockvars_before].z)
             except:
@@ -981,7 +1008,9 @@ class Reader(BaseReader,UnstructuredReader):
                     ReaderBlockUnstruct(
                         reader_data_dict,
                         KDtree = self.reader_KDtree,
-                        interpolation_horizontal=self.interpolation)
+                        interpolation_horizontal=self.interpolation,
+                        x_particles=reader_x, y_particles=reader_y,
+                        KDtree_3d_buffer=self.KDtree_3d_buffer)
                 try:
                     len_z = len(self.var_block_after[blockvars_after].z)
                 except:
@@ -998,11 +1027,8 @@ class Reader(BaseReader,UnstructuredReader):
             reader_x, reader_y) is False) or (\
             block_after is not None and block_after.covers_positions(
                 reader_x, reader_y) is False):
-            import pdb;pdb.set_trace()
-            logger.warning('Data block from %s not large enough to '
-                            'cover element positions within timestep. '
-                            'Buffer size (%s) must be increased.' %
-                            (self.name, str(self.buffer)))
+            logger.warning('Data block from %s does not '
+                            'cover all element positions' % self.name)
         self.timer_end('preparing') 
 
         ############################################################
@@ -1092,20 +1118,13 @@ class Reader(BaseReader,UnstructuredReader):
         if False :
             self.apply_logarithmic_current_profile(env,z)
          
-        # additional on-land checks using shore_landmask (if present)
-        if 'land_binary_mask' in env.keys() and self.use_model_landmask and hasattr(self,'shore_file'):
-            logger.debug('Updating land_binary_mask using shoreline landmask <%s> ' % self.shore_file)
-            lon_tmp,lat_tmp = self.xy2lonlat(reader_x,reader_y)
-            on_shore_landmask = shapely.vectorized.contains(self.shore_landmask, lon_tmp, lat_tmp) #checks if particle(s) are in land polys
-            # update the 'land_binary_mask' accounting for shoreline landmask
-            env['land_binary_mask'] = np.maximum(env['land_binary_mask'],on_shore_landmask.astype(float))
-
         # make sure dry points have zero velocities which is not always the case
         # we could also look at using depth and thresholds to flag other dry points ?
         if 'land_binary_mask' in env.keys():
             logger.debug('Setting [x_sea_water_velocity,y_sea_water_velocity] to zero at dry points')
-            env['x_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
-            env['y_sea_water_velocity'][env['land_binary_mask'].astype('bool')] = 0
+            for var in ['x_sea_water_velocity', 'y_sea_water_velocity']:
+                if var in env:
+                    env[var][env['land_binary_mask'].astype('bool')] = 0
         
         return env, env_profiles
 
@@ -1170,38 +1189,6 @@ class Reader(BaseReader,UnstructuredReader):
         log_fac[np.where(part_z_above_seabed<=0)] = 1.0 # do not change velocity value
         return log_fac
     
-    def load_shoreline_landmask(self):
-        # load shoreline polygon is added by user,used for additional on-land checks
-        #  must be in wgs84
-        # see reader_landmask_custom.py
-        from shapely.geometry import Polygon, MultiPolygon, asPolygon
-        import shapely
-
-        shore = np.loadtxt(
-            self.shore_file)  # nan-delimited closed polygons for land and islands
-
-        # Loop through polygon to build MultiPolygon object
-        #
-        # make sure that start and end lines are [nan,nan] as well
-        if not np.isnan(shore[0, 0]):
-            shore = np.vstack(([np.nan, np.nan], shore))
-        if not np.isnan(shore[-1, 0]):
-            shore = np.vstack((shore, [np.nan, np.nan]))
-        id_nans = np.where(np.isnan(shore[:, 0]))[0]
-        poly = []
-        for cnt, _id_i in enumerate(id_nans[:-1]):
-            # The shapely.geometry.asShape() family of functions can be used to wrap Numpy coordinate arrays
-            # https://shapely.readthedocs.io/en/latest/manual.html
-            poly.append(
-                asPolygon(shore[id_nans[cnt] + 1:id_nans[cnt + 1] - 1, :]))
-        # We can pass multiple Polygon -objects into our MultiPolygon as a list
-        landmask = MultiPolygon(poly)
-        # check plot
-        # import matplotlib.pyplot as plt;plt.plot(landmask[0].exterior.xy[0],landmask[0].exterior.xy[1])
-        landmask = shapely.prepared.prep(landmask)
-        # self.shore_landmask = landmask
-        return landmask
-
     def plot_mesh(self, variable=None, vmin=None, vmax=None,
              filename=None, title=None, buffer=1, lscale='auto',plot_time = None):
         """Plot geographical coverage of reader."""
@@ -1379,8 +1366,6 @@ class Reader(BaseReader,UnstructuredReader):
             mng.toolbar.zoom()
         except:
             pass
-        
-        import pdb;pdb.set_trace()
 
         if filename is not None:
             plt.savefig(filename)
@@ -1388,7 +1373,6 @@ class Reader(BaseReader,UnstructuredReader):
         else:
             plt.ion()
             plt.show()
-            import pdb;pdb.set_trace()
             # 
             # variable = ['sea_floor_depth_below_sea_level','x_sea_water_velocity','y_sea_water_velocity']
             # data = self.get_variables(variable, self.start_time,rx, ry, block=True) # where variable = ['x_sea_water_velocity','y_sea_water_velocity']
@@ -1426,7 +1410,9 @@ class ReaderBlockUnstruct():
     def __init__(self, data_dict, 
                  KDtree = None,
                  interpolation_horizontal='linearNDFast',
-                 interpolation_vertical='linear'):
+                 interpolation_vertical='linear',
+                 x_particles=None, y_particles=None,
+                 KDtree_3d_buffer=None):
 
         # Make pointers to data values, for convenience
         self.x = data_dict['x']
@@ -1481,10 +1467,26 @@ class ReaderBlockUnstruct():
             # check for infinite values
             if np.isinf(self.z_3d).any() :
                 self.z_3d[np.where(np.isinf(self.z_3d))] = 15.0 #limit to +15.0m i.e. above msl
-            
-            self.block_KDtree_3d = cKDTree(np.vstack((self.x_3d,self.y_3d,self.z_3d)).T) 
-            # do we need copy_data=True ..probably not since "data" [self.x_3d,self.y_3d,self.z_3d] 
-            # will not change without the KDtree being recomputedplt
+
+            # Build the 3D KDtree only from 3D nodes within a frame around the elements (+ buffer), 
+            # which is much faster than using all nodes. Queries are checked in query_3d(), and
+            # done with a KDtree of all 3D nodes for any elements whose nearest nodes may be outside the frame.
+            self.block_KDtree_3d_all = None
+            self.frame_3d = None
+            if x_particles is not None and KDtree_3d_buffer is not None and len(x_particles) > 0:
+                self.frame_3d = [np.nanmin(x_particles) - KDtree_3d_buffer, np.nanmax(x_particles) + KDtree_3d_buffer,
+                                 np.nanmin(y_particles) - KDtree_3d_buffer, np.nanmax(y_particles) + KDtree_3d_buffer]
+                self.id_frame_3d = np.where((self.x_3d >= self.frame_3d[0]) & (self.x_3d <= self.frame_3d[1]) &
+                                            (self.y_3d >= self.frame_3d[2]) & (self.y_3d <= self.frame_3d[3]))[0]
+                logger.debug('Building 3D KDtree from %i of %i 3D nodes' % (len(self.id_frame_3d), len(self.x_3d)))
+                id_frame = self.id_frame_3d
+                if len(id_frame) < 3: # not enough nodes in frame, use all nodes
+                    self.frame_3d = None
+                    id_frame = np.arange(len(self.x_3d))
+                self.block_KDtree_3d = cKDTree(np.vstack((self.x_3d[id_frame],self.y_3d[id_frame],self.z_3d[id_frame])).T) 
+            else:
+                self.block_KDtree_3d = self.block_KDtree_3d_all = \
+                    cKDTree(np.vstack((self.x_3d,self.y_3d,self.z_3d)).T) 
 
         # Mask any extremely large values, e.g. if missing netCDF _Fill_value
         filled_variables = set()
@@ -1532,6 +1534,32 @@ class ReaderBlockUnstruct():
                           'for landmask, and %s for other variables'
                           % interpolation_horizontal)
 
+    def query_3d(self, x, y, z, k):
+        '''
+        Return distance and indices of the k nearest 3D nodes of positions (x, y, z), 
+        same as with a KDtree of all 3D nodes.
+
+        The 3D KDtree is built from nodes within a horizontal frame around elements. Nodes outside
+        the frame are further from a position than the horizontal distance from that position 
+        to the frame edges. If the k-th nearest node in the frame is closer than that distance, 
+        the result is the same as with all nodes. Otherwise the position is queried with a 
+        KDtree of all 3D nodes (built only if needed).
+        '''
+        points = np.vstack((x,y,z)).T
+        dist, i = self.block_KDtree_3d.query(points, k, workers=-1)
+        if self.frame_3d is None:
+            return dist, i
+        i = self.id_frame_3d[np.minimum(i, len(self.id_frame_3d) - 1)] # indices in all 3D nodes
+        dist_to_frame = np.minimum.reduce([x - self.frame_3d[0], self.frame_3d[1] - x,
+                                           y - self.frame_3d[2], self.frame_3d[3] - y])
+        not_exact = ~(dist.max(axis=-1) < dist_to_frame) # also True for nan
+        if not_exact.any():
+            if self.block_KDtree_3d_all is None:
+                logger.debug('Building 3D KDtree from all 3D nodes, for %i positions outside frame' % not_exact.sum())
+                self.block_KDtree_3d_all = cKDTree(np.vstack((self.x_3d,self.y_3d,self.z_3d)).T)
+            dist[not_exact], i[not_exact] = self.block_KDtree_3d_all.query(points[not_exact], k, workers=-1)
+        return dist, i
+
     def _initialize_interpolator(self, x, y, z=None):
         logger.debug('Initialising interpolator.')
         self.interpolator2d = self.Interpolator2DClass(self.x, self.y, x, y)
@@ -1545,9 +1573,12 @@ class ReaderBlockUnstruct():
         # self._initialize_interpolator(x, y, z)
         
         env_dict = {}
-        if profiles is not []:
+        profiles_dict = {}
+        if profiles and profiles_depth is not None:
             # here we create the grid that will be used to interpolate vertical profiles, from the x_3d,y_3d,z_3d
             profiles_dict =  {'z': np.linspace(0, -profiles_depth,20)} #{'z': profiles_depth} # consistent with what is done in <unstructured.py> line 70
+        # nearest nodes are the same for all variables : query KDtrees only once
+        queries = {}
         for varname, data in self.data_dict.items(): # same syntax as in structured.py, used to be iteritems(self.data_dict)
             nearest = False
             # land mask 
@@ -1587,11 +1618,15 @@ class ReaderBlockUnstruct():
                 DMIN=1.e-10
                 if data.shape[0] == self.x.shape[0] : # 2D data- full slice
                     #2D KDtree
-                    dist,i=self.block_KDtree.query(np.vstack((x,y)).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
+                    if '2d' not in queries:
+                        queries['2d'] = self.block_KDtree.query(np.vstack((x,y)).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
+                    dist,i=queries['2d']
                     # dist = distance to nodes / i = index of nodes
                 elif hasattr(self,'z_3d') and (data.shape[0] == self.x_3d.shape[0]) : #3D data
                     #3D KDtree
-                    dist,i=self.block_KDtree_3d.query(np.vstack((x,y,z)).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
+                    if '3d' not in queries:
+                        queries['3d'] = self.query_3d(x,y,z,nb_closest_nodes) #quick nearest-neighbor lookup
+                    dist,i=queries['3d']
                     # dist = distance to nodes / i = index of nodes
                     ##############################
                     # PLOT CHECKS
@@ -1603,7 +1638,7 @@ class ReaderBlockUnstruct():
                         ax.scatter(x[0:1],y[0:1],z[0:1],c='g', marker='o')
                     ##############################3
 
-                dist[dist<DMIN]=DMIN
+                dist = np.maximum(dist, DMIN) # copy, as dist is reused for other variables
                 fac=(1./dist)
                 data_interpolated = (fac*data.take(i)).sum(-1)/fac.sum(-1)
 
@@ -1622,7 +1657,9 @@ class ReaderBlockUnstruct():
                     x_prof = np.tile(x,[len(profiles_dict['z']),1])
                     y_prof = np.tile(y,[len(profiles_dict['z']),1])
                     z_prof = np.tile(profiles_dict['z'],[len(x),1]).T
-                    dist,i=self.block_KDtree_3d.query(np.vstack((np.ravel(x_prof),np.ravel(y_prof),np.ravel(z_prof))).T,nb_closest_nodes, workers=-1) #quick nearest-neighbor lookup
+                    if '3d_profiles' not in queries:
+                        queries['3d_profiles'] = self.query_3d(np.ravel(x_prof),np.ravel(y_prof),np.ravel(z_prof),nb_closest_nodes) #quick nearest-neighbor lookup
+                    dist,i=queries['3d_profiles']
                     dist[dist<DMIN]=DMIN
                     fac=(1./dist)
                     data_prof = (fac*data.take(i)).sum(-1)/fac.sum(-1) # interpolate to vertical levels
@@ -1668,22 +1705,6 @@ class ReaderBlockUnstruct():
         '''Check if given positions are covered by this reader block.'''
         indices = np.where((x >= self.x.min()) & (x <= self.x.max()) &
                            (y >= self.y.min()) & (y <= self.y.max()))[0]
-
-        if len(indices) != len(x):
-            import matplotlib.pyplot as plt
-            plt.ion()
-            plt.plot(x,y,'r.')
-            box = np.array([(self.x.min(),self.y.min()),\
-            (self.x.max(),self.y.min()),\
-            (self.x.max(),self.y.max()),\
-            (self.x.min(),self.y.max()),\
-            (self.x.min(),self.y.min())])
-            plt.plot(box[:,0],box[:,1],'k--')
-            plt.plot(self.x,self.y,'k.')
-            
-            plt.title('Increase buffer distance around particle cloud')
-            import pdb;pdb.set_trace()
-            plt.close()
 
         if len(indices) == len(x):
             return True

@@ -14,8 +14,11 @@ o = OceanDrift(loglevel=0)  # Set loglevel to 0 for debug information
 
 reader_landmask = reader_global_landmask.Reader() 
 
+# datamesh_regular_cons = reader_datamesh_regular_cons.Reader(
+#       filename = '/home/simon/calypso_science/tide_grids/oceanum_2km.zarr',)  # native coordinate system is lon/lat
+
 datamesh_regular_cons = reader_datamesh_regular_cons.Reader(
-      filename = '/home/simon/calypso_science/tide_grids/oceanum_2km.zarr',)  # native coordinate system is lon/lat
+      filename = '/home/simon/code/github/calypso_oceanum_config_repo/dpm/schism/porthaliguen/local/PRAX_local_test/tide_cons_V1_SUDBZH_processed.zarr.zarr',)  # native coordinate system is lon/lat
 
 o.add_reader([reader_landmask,datamesh_regular_cons]) #
 o.set_config('general:use_auto_landmask', False) # prevent opendrift from making a new dynamical landmask with global_landmask
@@ -27,8 +30,8 @@ time_run = [datetime(2024,1,1), datetime(2024,1,1) + timedelta(hours=24)]
 # Seed elements at defined positions, depth and time
 # 
 # in Cook Strait
-o.seed_elements(lon=174.572107,
-                lat=-41.499003, 
+o.seed_elements(lon=-3.1570, 
+                lat=47.4344, 
                 radius=500, # 1km radius 
                 number=1000,
                 z=np.linspace(0,-10, 1000), 
