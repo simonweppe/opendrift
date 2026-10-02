@@ -13,8 +13,11 @@ o = OceanDrift(loglevel=0)  # Set loglevel to 0 for debug information
 ###############################
 
 # reader_landmask = reader_global_landmask.Reader() 
+# schism_datamesh_cons = reader_datamesh_schism_cons.Reader(
+# 	filename = '/home/simon/calypso_science/tide_grids/calypso-tidalcons-hauraki-v1',)  # native coordinate system is lon/lat
 schism_datamesh_cons = reader_datamesh_schism_cons.Reader(
-	filename = '/home/simon/calypso_science/tide_grids/calypso-tidalcons-hauraki-v1',)  # native coordinate system is lon/lat
+	filename = '/home/simon/code/github/calypso_oceanum_config_repo/dpm/schism/porthaliguen/local/PRAX_local_test/calypso-tidalcons-quiberon-v2.zarr')  # native coordinate system is lon/lat
+
 # this will include the mesh boundary polygons and interior islands
 
 import pdb;pdb.set_trace()
@@ -27,19 +30,19 @@ o.set_config('drift:horizontal_diffusivity', 0.1) # Switch on horizontal diffusi
 time_run = [datetime(2024,1,1), datetime(2024,1,1) + timedelta(hours=12)]
 
 # Seed elements at defined positions, depth and time
-o.seed_elements(lon=175.0060864, 
-                lat=-36.5267795, 
+o.seed_elements(lon=-3.1570, 
+                lat=47.4344, 
                 radius=250, 
                 number=100,
                 z=np.linspace(0,-10, 100), 
                 time=time_run) # this will be a continuous release over that time vector
 
-o.seed_elements(lon=174.80710933775802, 
-                lat=-36.83665631119203, 
-                radius=250, 
-                number=100,
-                z=np.linspace(0,-10, 100), 
-                time=time_run) # this will be a continuous release over that time vector
+# o.seed_elements(lon=174.80710933775802, 
+#                 lat=-36.83665631119203, 
+#                 radius=250, 
+#                 number=100,
+#                 z=np.linspace(0,-10, 100), 
+#                 time=time_run) # this will be a continuous release over that time vector
 
 
 # Running model
